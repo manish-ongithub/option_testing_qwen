@@ -33,8 +33,8 @@ fh.setFormatter(formatter)
 logger.addHandler(fh)
 
 # ================== CONFIGURATION ==================
-TELEGRAM_BOT_TOKEN = "8554491299:AAEYVxPF-THCg5f37JsDBHGUI3kTON2idPM"  # ← REPLACE THIS
-TELEGRAM_CHAT_ID = "@manish_private_bot"              # ← REPLACE THIS
+TELEGRAM_BOT_TOKEN = "#"  # ← REPLACE THIS
+TELEGRAM_CHAT_ID = "#"              # ← REPLACE THIS
 
 # Instruments
 INDEX_SYMBOLS = ["NIFTY", "BANKNIFTY"]
