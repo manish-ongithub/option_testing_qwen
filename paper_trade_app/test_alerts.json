@@ -1,0 +1,65 @@
+[
+  {
+    "symbol": "NIFTY",
+    "expiry": "2025-12-26",
+    "strike": 24000,
+    "option_type": "CE",
+    "action": "BUY",
+    "price_limit": 150.0,
+    "quantity": 25
+  },
+  {
+    "symbol": "NIFTY",
+    "expiry": "2025-12-26",
+    "strike": 24000,
+    "option_type": "PE",
+    "action": "BUY",
+    "price_limit": 120.0,
+    "quantity": 25
+  },
+  {
+    "symbol": "BANKNIFTY",
+    "expiry": "2025-12-26",
+    "strike": 52000,
+    "option_type": "CE",
+    "action": "BUY",
+    "price_limit": 350.0,
+    "quantity": 15
+  },
+  {
+    "symbol": "BANKNIFTY",
+    "expiry": "2025-12-26",
+    "strike": 52000,
+    "option_type": "PE",
+    "action": "SELL",
+    "price_limit": 300.0,
+    "quantity": 15
+  },
+  {
+    "symbol": "TCS",
+    "expiry": "2025-12-30",
+    "strike": 4000,
+    "option_type": "CE",
+    "action": "BUY",
+    "price_limit": 55.0,
+    "quantity": 150
+  },
+  {
+    "symbol": "RELIANCE",
+    "expiry": "2025-12-30",
+    "strike": 1300,
+    "option_type": "CE",
+    "action": "BUY",
+    "price_limit": 25.0,
+    "quantity": 250
+  },
+  {
+    "symbol": "INFY",
+    "expiry": "2025-12-30",
+    "strike": 1800,
+    "option_type": "PE",
+    "action": "SELL",
+    "price_limit": 18.0,
+    "quantity": 300
+  }
+]

@@ -1,0 +1,3 @@
+Trade_ID,Symbol,Strike,Type,Entry_Date,Entry_Premium,Entry_Spot,Entry_IV,DTE_Entry,Lot_Size,Total_Cost,Expiry_Date,Delta,Gamma,Theta_Daily,Vega,Notes,Status,Exit_Date,Exit_Premium,Exit_Spot,Final_PnL,Final_PnL_Pct
+1,NIFTY,25500,PUT,2025-12-01,177.55,26200,15.5,85,25,4438.75,2025-02-24,-0.2850,0.000120,-2.85,12.50,"Bearish view - support test at 25000",OPEN,,,,, 
+2,NIFTY,25200,PUT,2025-12-01,125.50,26200,16.2,85,25,3137.50,2025-02-24,-0.2200,0.000095,-2.15,10.80,"Lower cost alternative to 25500",OPEN,,,,,

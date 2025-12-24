@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+venv_qwen/
+ENV/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+*.log.*
+screener.log*
+screener_diagnostic.log
+
+# Data files (keep structure, ignore large data)
+paper_trade_app/data_cache/
+paper_trade_app/NFO.csv
+
+# Reports (generated files)
+paper_trade_app/reports/*.pdf
+
+# Sensitive config (contains API keys - use config_example.py as template)
+paper_trade_app/config.py
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test alerts (keep example, ignore runtime files)
+paper_trade_app/alerts_inbox/*.json
+!paper_trade_app/alerts_inbox/example_screener_alert.json
+
