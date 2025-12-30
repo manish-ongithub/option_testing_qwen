@@ -31,6 +31,8 @@ source venv_qwen/bin/activate
 - requests
 - schedule
 - pytz
+- selenium (for Opstra auto-login)
+- webdriver-manager (for Opstra auto-login)
 
 ## Quick Start
 
@@ -38,7 +40,9 @@ source venv_qwen/bin/activate
 
 ```bash
 # From the project root directory
-python -m screener.main
+python -m screener.main              # Run with scheduler (auto Opstra refresh)
+python -m screener.main --json       # Single scan, JSON output
+python -m screener.main --refresh-opstra  # Force Opstra re-login
 ```
 
 ### Import and Use Programmatically
@@ -82,6 +86,7 @@ screener/
 ├── iv/                         # Implied Volatility data
 │   ├── __init__.py
 │   ├── opstra.py               # Opstra API integration
+│   ├── opstra_login.py         # Auto-login with persistent Chrome profile
 │   ├── historical.py           # Historical volatility calculation
 │   └── provider.py             # Unified get_iv_data() interface
 │
@@ -111,9 +116,71 @@ screener/
 
 ## Configuration
 
-### Opstra Cookies Setup
+### Opstra Auto-Login (Recommended)
 
-For accurate IV data, configure Opstra session cookies:
+The screener now supports **automatic Opstra login** using a persistent Chrome profile. You only need to login once manually, and subsequent runs will automatically extract fresh cookies.
+
+#### How It Works
+
+1. **First Run**: Browser opens → Login with Google → Profile saved to `~/.opstra_chrome_profile`
+2. **Subsequent Runs**: Uses saved profile → No manual login required
+3. **Session Expires** (after weeks): Use `--refresh-opstra` to re-login
+
+#### Usage
+
+```bash
+# Normal run - auto-refreshes Opstra if needed
+python -m screener.main
+
+# Single scan with JSON output
+python -m screener.main --json
+
+# Force Opstra re-login (opens browser)
+python -m screener.main --refresh-opstra
+
+# Skip Opstra entirely, use Historical Volatility fallback
+python -m screener.main --no-opstra
+
+# Custom scan interval (default: 300 seconds)
+python -m screener.main --interval 600
+```
+
+#### CLI Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `--json` | Run single scan and exit (no scheduler) |
+| `--refresh-opstra` | Force Opstra session refresh (opens browser for login) |
+| `--no-opstra` | Skip Opstra IV, use Historical Volatility fallback only |
+| `--interval N` | Scan interval in seconds (default: 300) |
+
+#### Programmatic Usage
+
+```python
+from screener.iv import refresh_opstra_session, clear_opstra_profile
+
+# Refresh Opstra session (opens browser if needed)
+refresh_opstra_session()
+
+# Force re-login
+refresh_opstra_session(force_login=True)
+
+# Clear saved profile (for troubleshooting)
+clear_opstra_profile()
+```
+
+#### Configuration
+
+The Chrome profile path can be customized in `screener/config.py`:
+
+```python
+# Default: ~/.opstra_chrome_profile
+CHROME_PROFILE_PATH = "/path/to/custom/profile"
+```
+
+### Manual Opstra Setup (Alternative)
+
+If you prefer not to use auto-login, you can still set cookies manually:
 
 1. Login to https://opstra.definedge.com in Chrome
 2. Press F12 → Application → Cookies → opstra.definedge.com

@@ -2,9 +2,13 @@
 Smart Options Screener v3.3 - Main Entry Point
 
 Run the screener:
-    python -m screener.main
+    python -m screener.main              # Normal run (auto-refreshes Opstra if needed)
+    python -m screener.main --json       # Single scan, output JSON
+    python -m screener.main --refresh-opstra  # Force Opstra re-login
+    python -m screener.main --no-opstra  # Skip Opstra, use HV fallback only
 """
 
+import argparse
 import time
 import schedule
 
@@ -19,6 +23,43 @@ from screener.scanners.index import scan_index
 from screener.output.csv_logger import log_to_csv
 from screener.output.json_logger import log_alerts_batch_to_json
 from screener.utils.logging_setup import logger
+
+
+def _setup_opstra_session(force_refresh=False, skip_opstra=False):
+    """
+    Setup Opstra session using persistent browser profile.
+    
+    Args:
+        force_refresh: Force re-login even if session is valid
+        skip_opstra: Skip Opstra entirely, use HV fallback
+    
+    Returns:
+        bool: True if Opstra is ready, False otherwise
+    """
+    if skip_opstra:
+        logger.info("Opstra disabled by --no-opstra flag. Using HV fallback.")
+        return False
+    
+    # Check if Opstra is already configured and valid
+    if not force_refresh and is_opstra_configured():
+        from screener.iv.opstra import validate_opstra_session
+        if validate_opstra_session():
+            logger.info("Opstra session is valid.")
+            return True
+        logger.info("Opstra session expired. Attempting refresh...")
+    
+    # Try to refresh via browser
+    try:
+        from screener.iv.opstra_login import refresh_opstra_session
+        success = refresh_opstra_session(force_login=force_refresh)
+        return success
+    except ImportError as e:
+        logger.warning("Opstra auto-login not available: %s", e)
+        logger.info("Install selenium and webdriver-manager for auto-login support.")
+        return False
+    except Exception as e:
+        logger.warning("Opstra refresh failed: %s", e)
+        return False
 
 
 def job():
@@ -155,22 +196,27 @@ def _save_alerts(unique_alerts):
     logger.info("  JSON: %s", JSON_FILE)
 
 
-def run_scheduler(interval_seconds=300):
+def run_scheduler(interval_seconds=300, force_refresh_opstra=False, skip_opstra=False):
     """
     Run the screener on a schedule.
     
     Args:
         interval_seconds: Time between scans (default: 300 = 5 minutes)
+        force_refresh_opstra: Force Opstra re-login
+        skip_opstra: Skip Opstra, use HV fallback only
     """
     logger.info("Smart Options Screener v3.3")
     logger.info("Features: Opstra IV + HV Fallback + Enhanced Alerts")
     logger.info("Stocks: %d | Indices: %d", len(STOCK_SYMBOLS), len(INDEX_SYMBOLS))
     
+    # Setup Opstra session
+    _setup_opstra_session(force_refresh=force_refresh_opstra, skip_opstra=skip_opstra)
+    
     if not is_opstra_configured():
         logger.info("")
-        logger.info("Opstra cookies not configured - using Historical Volatility fallback")
-        logger.info("   For accurate IV data, set cookies after logging into Opstra:")
-        logger.info("   set_opstra_cookies('JSESSIONID_value', 'DSESSIONID_value')")
+        logger.info("Opstra not available - using Historical Volatility fallback")
+        logger.info("   To enable Opstra: run without --no-opstra flag")
+        logger.info("   To force re-login: python -m screener.main --refresh-opstra")
         logger.info("")
     
     # Run once immediately
@@ -185,6 +231,80 @@ def run_scheduler(interval_seconds=300):
         time.sleep(1)
 
 
+def run_once(force_refresh_opstra=False, skip_opstra=False):
+    """
+    Run a single scan (for --json mode).
+    
+    Args:
+        force_refresh_opstra: Force Opstra re-login
+        skip_opstra: Skip Opstra, use HV fallback only
+    """
+    logger.info("Smart Options Screener v3.3 - Single Scan Mode")
+    logger.info("Stocks: %d | Indices: %d", len(STOCK_SYMBOLS), len(INDEX_SYMBOLS))
+    
+    # Setup Opstra session
+    _setup_opstra_session(force_refresh=force_refresh_opstra, skip_opstra=skip_opstra)
+    
+    # Run single scan
+    job()
+
+
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Smart Options Screener v3.3",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python -m screener.main                # Run with scheduler (every 5 min)
+  python -m screener.main --json         # Single scan, output JSON
+  python -m screener.main --refresh-opstra  # Force Opstra re-login
+  python -m screener.main --no-opstra    # Use HV fallback only
+        """
+    )
+    
+    parser.add_argument(
+        '--json', 
+        action='store_true',
+        help='Run single scan and exit (no scheduler)'
+    )
+    
+    parser.add_argument(
+        '--refresh-opstra',
+        action='store_true',
+        help='Force Opstra session refresh (opens browser for login)'
+    )
+    
+    parser.add_argument(
+        '--no-opstra',
+        action='store_true',
+        help='Skip Opstra IV, use Historical Volatility fallback only'
+    )
+    
+    parser.add_argument(
+        '--interval',
+        type=int,
+        default=300,
+        help='Scan interval in seconds (default: 300)'
+    )
+    
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    run_scheduler()
+    args = parse_args()
+    
+    if args.json:
+        # Single scan mode
+        run_once(
+            force_refresh_opstra=args.refresh_opstra,
+            skip_opstra=args.no_opstra
+        )
+    else:
+        # Scheduler mode
+        run_scheduler(
+            interval_seconds=args.interval,
+            force_refresh_opstra=args.refresh_opstra,
+            skip_opstra=args.no_opstra
+        )
 

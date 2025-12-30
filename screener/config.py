@@ -41,21 +41,27 @@ for stock in STOCK_SYMBOLS:
     SYMBOL_MAP[stock] = f"{stock}.NS"
 
 # ================== OPSTRA CONFIGURATION ==================
-# To get cookies:
-# 1. Login to https://opstra.definedge.com in Chrome
-# 2. Press F12 → Application tab → Cookies → opstra.definedge.com
-# 3. Copy JSESSIONID and DSESSIONID values below
+# Auto-login uses a persistent Chrome profile to avoid daily manual cookie refresh.
+# First run: Browser opens for Google login (profile saved automatically)
+# Subsequent runs: Uses saved profile, no manual login needed
+#
+# To force re-login: python -m screener.main --refresh-opstra
 
+# Path to persistent Chrome profile for Opstra auto-login
+# Set to None to use default (~/.opstra_chrome_profile)
+CHROME_PROFILE_PATH = None
+
+# Cookies are auto-populated by opstra_login.py, but can be set manually here
 OPSTRA_COOKIES = {
-    'JSESSIONID': '9DCB9574F3DEF1073EC92D2329E8CC4E',
-    'DSESSIONID': '718F8911E954CE00C69A6EF33AEC2388',
-    '_ga': 'GA1.1.703791765.1764073625',
-    '_ga_6D0ZQ437SD': 'GS2.1.s1764145134$o4$g1$t1764145153$j41$l0$h0'
+    'JSESSIONID': '04EB3B224EF6C27972375140B9D2A554',
+    'DSESSIONID': '243CB610EA5FEEE81D924097B818311C',
+    '_ga': 'GA1.1.513355576.1767094859',
+    '_ga_6D0ZQ437SD': 'GS2.1.s1767094858$o1$g1$t1767094864$j54$l0$h0'
 }
 
 # Set to True to require Opstra (will skip stocks without IV data)
 # Set to False to use Historical Volatility fallback
-REQUIRE_OPSTRA_IV = False
+REQUIRE_OPSTRA_IV = True
 
 # Cache IV data to reduce API calls (symbol -> {data, timestamp})
 IV_CACHE = {}

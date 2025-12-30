@@ -12,6 +12,7 @@ from screener.config import OPSTRA_COOKIES, IV_CACHE, IV_CACHE_DURATION
 from screener.utils.logging_setup import logger
 
 
+
 def set_opstra_cookies(jsessionid, dsessionid):
     """
     Set Opstra session cookies programmatically.
@@ -27,6 +28,48 @@ def set_opstra_cookies(jsessionid, dsessionid):
 def is_opstra_configured():
     """Check if Opstra cookies are set."""
     return bool(OPSTRA_COOKIES.get('JSESSIONID') and OPSTRA_COOKIES.get('DSESSIONID'))
+
+
+def validate_opstra_session():
+    """
+    Validate if current Opstra cookies are still working.
+    
+    Makes a test API call to check session validity.
+    
+    Returns:
+        bool: True if session is valid, False otherwise
+    """
+    if not is_opstra_configured():
+        return False
+    
+    headers = {
+        "accept": "application/json, text/plain, */*",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "en-GB,en-US;q=0.9,en;q=0.8",
+        "referer": "https://opstra.definedge.com/ivchart",
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    try:
+        # Test with NIFTY - always available
+        url = "https://opstra.definedge.com/api/ivcharts/NIFTY"
+        response = requests.get(url, headers=headers, cookies=OPSTRA_COOKIES, timeout=10)
+        
+        if response.status_code == 401:
+            logger.debug("Opstra session expired (401)")
+            return False
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("ivchart"):
+                logger.debug("Opstra session validated successfully")
+                return True
+        
+        return False
+        
+    except Exception as e:
+        logger.debug("Opstra validation error: %s", e)
+        return False
 
 
 def get_iv_from_opstra(symbol):
