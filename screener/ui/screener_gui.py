@@ -752,28 +752,29 @@ class ScreenerTab(QWidget):
         
         # Stock action buttons row
         stock_buttons = QHBoxLayout()
+        stock_buttons.setSpacing(5)
         
         add_stock_btn = QPushButton("➕ Add")
-        add_stock_btn.setFixedWidth(65)
+        add_stock_btn.setMinimumWidth(60)
         add_stock_btn.setToolTip("Add a new stock symbol")
         add_stock_btn.clicked.connect(self._add_stock)
         stock_buttons.addWidget(add_stock_btn)
         
         remove_stock_btn = QPushButton("➖ Remove")
-        remove_stock_btn.setFixedWidth(75)
-        remove_stock_btn.setToolTip("Remove selected stocks")
+        remove_stock_btn.setMinimumWidth(80)
+        remove_stock_btn.setToolTip("Remove unchecked stocks from list")
         remove_stock_btn.clicked.connect(self._remove_selected_stocks)
         stock_buttons.addWidget(remove_stock_btn)
         
         stock_buttons.addStretch()
         
         select_all_btn = QPushButton("Select All")
-        select_all_btn.setFixedWidth(75)
+        select_all_btn.setMinimumWidth(75)
         select_all_btn.clicked.connect(self._select_all_stocks)
         stock_buttons.addWidget(select_all_btn)
         
         clear_all_btn = QPushButton("Clear All")
-        clear_all_btn.setFixedWidth(70)
+        clear_all_btn.setMinimumWidth(70)
         clear_all_btn.clicked.connect(self._clear_all_stocks)
         stock_buttons.addWidget(clear_all_btn)
         
