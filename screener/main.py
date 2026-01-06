@@ -204,6 +204,7 @@ def run_scan_with_config(
     trend_interval='1d',
     hv_period='1y',
     hv_window=30,
+    skip_opstra=False,
     progress_callback=None
 ):
     """
@@ -217,6 +218,7 @@ def run_scan_with_config(
         trend_interval: Interval for trend data ('1d', '1h', '5m')
         hv_period: Period for HV calculation ('3mo', '6mo', '1y', '2y')
         hv_window: Rolling window days for HV calculation (10-60)
+        skip_opstra: If True, skip Opstra IV and use Historical Volatility only
         progress_callback: Optional callback function for progress updates
     
     Returns:
@@ -224,10 +226,14 @@ def run_scan_with_config(
     """
     from screener.utils.helpers import set_trend_params
     from screener.iv.historical import set_hv_params
+    from screener.iv.provider import set_skip_opstra
     
     # Set time parameters for calculations
     set_trend_params(period=trend_period, interval=trend_interval)
     set_hv_params(period=hv_period, window=hv_window)
+    
+    # Set Opstra skip flag
+    set_skip_opstra(skip_opstra)
     
     # Use defaults if not specified
     scan_indices = indices if indices is not None else INDEX_SYMBOLS
@@ -243,7 +249,14 @@ def run_scan_with_config(
     _progress("Starting scan with custom configuration...")
     
     market_open = is_market_hours()
-    opstra_status = "CONFIGURED" if is_opstra_configured() else "NOT SET (using HV fallback)"
+    
+    # Determine Opstra status
+    if skip_opstra:
+        opstra_status = "SKIPPED (using HV only)"
+    elif is_opstra_configured():
+        opstra_status = "CONFIGURED"
+    else:
+        opstra_status = "NOT SET (using HV fallback)"
     
     # Check if we should skip scanning when market is closed
     if not market_open and not ALLOW_AFTER_HOURS_SCAN:

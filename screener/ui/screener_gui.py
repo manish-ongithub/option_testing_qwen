@@ -40,9 +40,10 @@ from PyQt6.QtWidgets import (
     QLabel, QCheckBox, QPushButton, QGroupBox, QScrollArea,
     QComboBox, QSpinBox, QFrame, QStatusBar, QProgressBar,
     QGridLayout, QSplitter, QMessageBox, QTabWidget, QFileDialog,
-    QTableWidget, QTableWidgetItem, QHeaderView, QTextEdit, QDialog
+    QTableWidget, QTableWidgetItem, QHeaderView, QTextEdit, QDialog,
+    QLineEdit, QInputDialog
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QColor, QPalette
 
 from screener.config import INDEX_SYMBOLS, STOCK_SYMBOLS, JSON_FILE
@@ -62,6 +63,36 @@ STRATEGIES = [
 HISTORICAL_PERIODS = ["1w", "1mo", "3mo", "6mo", "1y"]
 HISTORICAL_INTERVALS = ["1d", "1h", "5m"]
 HV_PERIODS = ["3mo", "6mo", "1y", "2y"]
+
+
+class OpstraRefreshWorker(QThread):
+    """Background worker thread for refreshing Opstra session."""
+    
+    finished = pyqtSignal(bool, str)  # (success, message)
+    progress = pyqtSignal(str)  # status message
+    
+    def __init__(self, force_login=False):
+        super().__init__()
+        self.force_login = force_login
+    
+    def run(self):
+        """Refresh Opstra session via browser."""
+        try:
+            self.progress.emit("Opening browser for Opstra login...")
+            
+            from screener.iv.opstra_login import refresh_opstra_session
+            
+            success = refresh_opstra_session(force_login=self.force_login)
+            
+            if success:
+                self.finished.emit(True, "Opstra session refreshed successfully!")
+            else:
+                self.finished.emit(False, "Failed to refresh Opstra session. Using HV fallback.")
+                
+        except ImportError as e:
+            self.finished.emit(False, f"Selenium not installed. Install with: pip install selenium webdriver-manager")
+        except Exception as e:
+            self.finished.emit(False, f"Error refreshing Opstra: {str(e)}")
 
 
 class ScanWorker(QThread):
@@ -90,6 +121,7 @@ class ScanWorker(QThread):
                 trend_interval=self.config.get('trend_interval', '1d'),
                 hv_period=self.config.get('hv_period', '1y'),
                 hv_window=self.config.get('hv_window', 30),
+                skip_opstra=self.config.get('skip_opstra', False),
                 progress_callback=self.progress.emit
             )
             
@@ -110,9 +142,31 @@ class AnalysisWorker(QThread):
         self.alert_data = alert_data
         self.analysis_type = analysis_type
     
+    def _ensure_numeric(self, value, default=0):
+        """Ensure a value is numeric, handling string formats like '60000/60400'."""
+        if isinstance(value, (int, float)):
+            return value
+        if isinstance(value, str):
+            # Handle multi-strike format like "60000/60400"
+            if '/' in value:
+                try:
+                    return float(value.split('/')[0].strip())
+                except ValueError:
+                    return default
+            try:
+                return float(value)
+            except ValueError:
+                return default
+        return default
+    
     def run(self):
         """Run the analysis."""
         try:
+            # Ensure strike is numeric
+            strike = self._ensure_numeric(self.alert_data.get('strike', 0))
+            spot = self._ensure_numeric(self.alert_data.get('spot', 0))
+            premium = self._ensure_numeric(self.alert_data.get('premium', 0))
+            
             # Capture stdout
             old_stdout = sys.stdout
             sys.stdout = buffer = io.StringIO()
@@ -122,16 +176,16 @@ class AnalysisWorker(QThread):
                 
                 analyze_alert(
                     symbol=self.alert_data.get('symbol', 'UNKNOWN'),
-                    spot=self.alert_data.get('spot', 0),
-                    strike=self.alert_data.get('strike', 0),
-                    premium=self.alert_data.get('premium', 0),
+                    spot=spot,
+                    strike=strike,
+                    premium=premium,
                     option_type=self.alert_data.get('type', 'CE'),
-                    dte=self.alert_data.get('days_to_expiry', 30),
-                    iv=self.alert_data.get('iv', 20),
-                    iv_percentile=self.alert_data.get('iv_percentile', 50),
-                    volume=self.alert_data.get('volume', 0),
-                    oi=self.alert_data.get('open_interest', 0),
-                    lot_size=self.alert_data.get('lot_size', 100),
+                    dte=int(self._ensure_numeric(self.alert_data.get('days_to_expiry', 30))),
+                    iv=self._ensure_numeric(self.alert_data.get('iv', 20)),
+                    iv_percentile=self._ensure_numeric(self.alert_data.get('iv_percentile', 50)),
+                    volume=int(self._ensure_numeric(self.alert_data.get('volume', 0))),
+                    oi=int(self._ensure_numeric(self.alert_data.get('open_interest', 0))),
+                    lot_size=int(self._ensure_numeric(self.alert_data.get('lot_size', 100))),
                     capital=50000,
                     risk_per_trade_pct=2
                 )
@@ -140,14 +194,14 @@ class AnalysisWorker(QThread):
                 
                 enhanced_alert_analysis(
                     symbol=self.alert_data.get('symbol', 'UNKNOWN'),
-                    strike=self.alert_data.get('strike', 0),
-                    premium=self.alert_data.get('premium', 0),
+                    strike=strike,
+                    premium=premium,
                     option_type=self.alert_data.get('type', 'CE'),
-                    dte=self.alert_data.get('days_to_expiry', 30),
-                    iv=self.alert_data.get('iv', 20),
-                    iv_percentile=self.alert_data.get('iv_percentile', 50),
-                    volume=self.alert_data.get('volume', 0),
-                    oi=self.alert_data.get('open_interest', 0),
+                    dte=int(self._ensure_numeric(self.alert_data.get('days_to_expiry', 30))),
+                    iv=self._ensure_numeric(self.alert_data.get('iv', 20)),
+                    iv_percentile=self._ensure_numeric(self.alert_data.get('iv_percentile', 50)),
+                    volume=int(self._ensure_numeric(self.alert_data.get('volume', 0))),
+                    oi=int(self._ensure_numeric(self.alert_data.get('open_interest', 0))),
                     capital=50000,
                     risk_per_trade_pct=2
                 )
@@ -231,7 +285,7 @@ class AlertViewerTab(QWidget):
         load_layout = QHBoxLayout()
         
         load_btn = QPushButton("📁  Load Alert File")
-        load_btn.setFont(QFont("-apple-system", 11))
+        load_btn.setFont(QFont("Helvetica Neue", 11))
         load_btn.setMinimumHeight(40)
         load_btn.setStyleSheet("""
             QPushButton {
@@ -308,7 +362,7 @@ class AlertViewerTab(QWidget):
         analysis_layout = QHBoxLayout()
         
         self.basic_analysis_btn = QPushButton("📋  Basic Analysis Report")
-        self.basic_analysis_btn.setFont(QFont("-apple-system", 11))
+        self.basic_analysis_btn.setFont(QFont("Helvetica Neue", 11))
         self.basic_analysis_btn.setMinimumHeight(45)
         self.basic_analysis_btn.setEnabled(False)
         self.basic_analysis_btn.setStyleSheet("""
@@ -330,7 +384,7 @@ class AlertViewerTab(QWidget):
         analysis_layout.addWidget(self.basic_analysis_btn)
         
         self.enhanced_analysis_btn = QPushButton("📊  Enhanced Analysis Report")
-        self.enhanced_analysis_btn.setFont(QFont("-apple-system", 11))
+        self.enhanced_analysis_btn.setFont(QFont("Helvetica Neue", 11))
         self.enhanced_analysis_btn.setMinimumHeight(45)
         self.enhanced_analysis_btn.setEnabled(False)
         self.enhanced_analysis_btn.setStyleSheet("""
@@ -510,13 +564,47 @@ class AlertViewerTab(QWidget):
         self.basic_analysis_btn.setEnabled(False)
         self.enhanced_analysis_btn.setEnabled(False)
         
+        # Handle multi-leg strategies (strike is a string like "60000/60400")
+        strike_raw = self.current_alert.get('strike', 0)
+        if isinstance(strike_raw, str) and '/' in strike_raw:
+            # Multi-leg strategy - extract first strike as primary
+            try:
+                strikes = [float(s.strip()) for s in strike_raw.split('/')]
+                strike = strikes[0]  # Use first leg's strike
+            except ValueError:
+                strike = 0
+        else:
+            strike = strike_raw if isinstance(strike_raw, (int, float)) else 0
+        
+        # Check if this is a multi-leg strategy
+        strategy = self.current_alert.get('strategy', '').lower()
+        is_multi_leg = any(s in strategy for s in ['spread', 'straddle', 'strangle'])
+        
+        # For multi-leg, use leg1 data if available
+        leg1 = self.current_alert.get('leg1', {})
+        leg2 = self.current_alert.get('leg2', {})
+        
+        if is_multi_leg and leg1:
+            # Use leg1's strike and premium for analysis
+            strike = leg1.get('strike', strike)
+            # Determine type from leg1's action
+            action = leg1.get('action', '').upper()
+            if 'CE' in action:
+                option_type = 'CE'
+            elif 'PE' in action:
+                option_type = 'PE'
+            else:
+                option_type = 'CE'
+        else:
+            option_type = self.current_alert.get('type', 'CE')
+        
         # Prepare alert data with defaults
         alert_data = {
             'symbol': self.current_alert.get('symbol', 'UNKNOWN'),
             'spot': self.current_alert.get('spot', 0),
-            'strike': self.current_alert.get('strike', 0),
+            'strike': strike,
             'premium': self.current_alert.get('premium', 0),
-            'type': self.current_alert.get('type', 'CE'),
+            'type': option_type,
             'days_to_expiry': self.current_alert.get('days_to_expiry', 
                               self.current_alert.get('dte', 30)),
             'iv': self.current_alert.get('iv', 20),
@@ -525,15 +613,20 @@ class AlertViewerTab(QWidget):
             'open_interest': self.current_alert.get('open_interest', 
                              self.current_alert.get('oi', 0)),
             'lot_size': self.current_alert.get('lot_size', 100),
+            # Include multi-leg info for enhanced reports
+            'is_multi_leg': is_multi_leg,
+            'strategy': self.current_alert.get('strategy', ''),
+            'leg1': leg1,
+            'leg2': leg2,
+            'total_cost': self.current_alert.get('total_cost', 0),
+            'max_loss': self.current_alert.get('max_loss', 0),
+            'breakeven': self.current_alert.get('breakeven', ''),
         }
         
-        # Determine option type from strategy if not present
-        if 'type' not in self.current_alert:
-            strategy = self.current_alert.get('strategy', '').lower()
-            if 'put' in strategy:
+        # Determine option type from strategy if not already set
+        if option_type == 'CE' and 'type' not in self.current_alert:
+            if 'put' in strategy and 'call' not in strategy:
                 alert_data['type'] = 'PE'
-            else:
-                alert_data['type'] = 'CE'
         
         # Start analysis worker
         self.analysis_worker = AnalysisWorker(alert_data, analysis_type)
@@ -573,10 +666,17 @@ class ScreenerTab(QWidget):
         self.stock_checkboxes = {}
         self.strategy_checkboxes = {}
         
-        # Worker thread
+        # Worker threads
         self.scan_worker = None
+        self.opstra_worker = None
+        
+        # Skip Opstra flag
+        self.skip_opstra = False
         
         self._setup_ui()
+        
+        # Check Opstra status on startup
+        QTimer.singleShot(500, self._update_opstra_status)
     
     def _setup_ui(self):
         """Setup the screener tab UI."""
@@ -590,7 +690,7 @@ class ScreenerTab(QWidget):
         subtitle_label.setStyleSheet("color: #666; margin-bottom: 10px;")
         layout.addWidget(subtitle_label)
         
-        # Main content area with 3 columns
+        # Main content area with 4 columns
         content_layout = QHBoxLayout()
         content_layout.setSpacing(15)
         
@@ -606,6 +706,10 @@ class ScreenerTab(QWidget):
         time_group = self._create_time_panel()
         content_layout.addWidget(time_group, stretch=1)
         
+        # Column 4: Opstra Config
+        opstra_group = self._create_opstra_panel()
+        content_layout.addWidget(opstra_group, stretch=1)
+        
         layout.addLayout(content_layout, stretch=1)
         
         # Control panel
@@ -615,12 +719,12 @@ class ScreenerTab(QWidget):
     def _create_symbols_panel(self):
         """Create the symbols selection panel."""
         group = QGroupBox("SYMBOLS")
-        group.setFont(QFont("-apple-system", 10, QFont.Weight.Bold))
+        group.setFont(QFont("Helvetica Neue", 10, QFont.Weight.Bold))
         layout = QVBoxLayout(group)
         
         # Indices section
         indices_label = QLabel("Indices:")
-        indices_label.setFont(QFont("-apple-system", 9, QFont.Weight.Bold))
+        indices_label.setFont(QFont("Helvetica Neue", 9, QFont.Weight.Bold))
         layout.addWidget(indices_label)
         
         indices_layout = QHBoxLayout()
@@ -638,55 +742,177 @@ class ScreenerTab(QWidget):
         line.setStyleSheet("background-color: #ddd;")
         layout.addWidget(line)
         
-        # Stocks section header with buttons
+        # Stocks section header with label
         stocks_header = QHBoxLayout()
-        stocks_label = QLabel(f"Stocks ({len(STOCK_SYMBOLS)}):")
-        stocks_label.setFont(QFont("-apple-system", 9, QFont.Weight.Bold))
-        stocks_header.addWidget(stocks_label)
+        self.stocks_label = QLabel(f"Stocks ({len(STOCK_SYMBOLS)}):")
+        self.stocks_label.setFont(QFont("Helvetica Neue", 9, QFont.Weight.Bold))
+        stocks_header.addWidget(self.stocks_label)
         stocks_header.addStretch()
-        
-        select_all_btn = QPushButton("Select All")
-        select_all_btn.setFixedWidth(80)
-        select_all_btn.clicked.connect(self._select_all_stocks)
-        stocks_header.addWidget(select_all_btn)
-        
-        clear_all_btn = QPushButton("Clear All")
-        clear_all_btn.setFixedWidth(80)
-        clear_all_btn.clicked.connect(self._clear_all_stocks)
-        stocks_header.addWidget(clear_all_btn)
-        
         layout.addLayout(stocks_header)
         
+        # Stock action buttons row
+        stock_buttons = QHBoxLayout()
+        
+        add_stock_btn = QPushButton("➕ Add")
+        add_stock_btn.setFixedWidth(65)
+        add_stock_btn.setToolTip("Add a new stock symbol")
+        add_stock_btn.clicked.connect(self._add_stock)
+        stock_buttons.addWidget(add_stock_btn)
+        
+        remove_stock_btn = QPushButton("➖ Remove")
+        remove_stock_btn.setFixedWidth(75)
+        remove_stock_btn.setToolTip("Remove selected stocks")
+        remove_stock_btn.clicked.connect(self._remove_selected_stocks)
+        stock_buttons.addWidget(remove_stock_btn)
+        
+        stock_buttons.addStretch()
+        
+        select_all_btn = QPushButton("Select All")
+        select_all_btn.setFixedWidth(75)
+        select_all_btn.clicked.connect(self._select_all_stocks)
+        stock_buttons.addWidget(select_all_btn)
+        
+        clear_all_btn = QPushButton("Clear All")
+        clear_all_btn.setFixedWidth(70)
+        clear_all_btn.clicked.connect(self._clear_all_stocks)
+        stock_buttons.addWidget(clear_all_btn)
+        
+        layout.addLayout(stock_buttons)
+        
         # Scrollable stock list
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setMinimumHeight(280)
-        scroll_area.setStyleSheet("QScrollArea { border: 1px solid #ccc; }")
+        self.stocks_scroll_area = QScrollArea()
+        self.stocks_scroll_area.setWidgetResizable(True)
+        self.stocks_scroll_area.setMinimumHeight(260)
+        self.stocks_scroll_area.setStyleSheet("QScrollArea { border: 1px solid #ccc; }")
         
-        scroll_widget = QWidget()
-        scroll_layout = QGridLayout(scroll_widget)
-        scroll_layout.setSpacing(5)
+        self.stocks_scroll_widget = QWidget()
+        self.stocks_scroll_layout = QGridLayout(self.stocks_scroll_widget)
+        self.stocks_scroll_layout.setSpacing(5)
         
-        # Sort stocks alphabetically
-        sorted_stocks = sorted(STOCK_SYMBOLS)
+        # Sort stocks alphabetically and create checkboxes
+        self._populate_stock_checkboxes(sorted(STOCK_SYMBOLS))
+        
+        self.stocks_scroll_area.setWidget(self.stocks_scroll_widget)
+        layout.addWidget(self.stocks_scroll_area)
+        
+        return group
+    
+    def _populate_stock_checkboxes(self, stock_list, checked=True):
+        """Populate the stock checkboxes grid."""
+        # Clear existing checkboxes
+        for cb in list(self.stock_checkboxes.values()):
+            cb.setParent(None)
+        self.stock_checkboxes.clear()
+        
+        # Clear layout
+        while self.stocks_scroll_layout.count():
+            item = self.stocks_scroll_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
         
         # Create checkboxes in a grid (4 columns)
         cols = 4
-        for i, symbol in enumerate(sorted_stocks):
+        for i, symbol in enumerate(sorted(stock_list)):
             cb = QCheckBox(symbol)
-            cb.setChecked(True)
+            cb.setChecked(checked)
             self.stock_checkboxes[symbol] = cb
-            scroll_layout.addWidget(cb, i // cols, i % cols)
+            self.stocks_scroll_layout.addWidget(cb, i // cols, i % cols)
         
-        scroll_area.setWidget(scroll_widget)
-        layout.addWidget(scroll_area)
+        # Update label
+        self.stocks_label.setText(f"Stocks ({len(self.stock_checkboxes)}):")
+    
+    def _add_stock(self):
+        """Add a new stock symbol."""
+        text, ok = QInputDialog.getText(
+            self,
+            "Add Stock Symbol",
+            "Enter stock symbol(s) separated by comma:\n(e.g., TCS, INFY, WIPRO)",
+            QLineEdit.EchoMode.Normal,
+            ""
+        )
         
-        return group
+        if not ok or not text.strip():
+            return
+        
+        # Parse input - handle comma-separated symbols
+        new_symbols = [s.strip().upper() for s in text.split(',') if s.strip()]
+        
+        added = []
+        already_exists = []
+        
+        for symbol in new_symbols:
+            if symbol in self.stock_checkboxes:
+                already_exists.append(symbol)
+            else:
+                added.append(symbol)
+        
+        if added:
+            # Get current stock list and add new ones
+            current_stocks = list(self.stock_checkboxes.keys())
+            # Remember which ones were checked
+            checked_stocks = {sym for sym, cb in self.stock_checkboxes.items() if cb.isChecked()}
+            
+            # Add new stocks
+            all_stocks = current_stocks + added
+            
+            # Repopulate (new stocks will be checked by default)
+            self._populate_stock_checkboxes(all_stocks, checked=False)
+            
+            # Restore check state for existing stocks
+            for sym in checked_stocks:
+                if sym in self.stock_checkboxes:
+                    self.stock_checkboxes[sym].setChecked(True)
+            
+            # Check the newly added stocks
+            for sym in added:
+                if sym in self.stock_checkboxes:
+                    self.stock_checkboxes[sym].setChecked(True)
+            
+            main_window = self.window()
+            if hasattr(main_window, 'status_bar'):
+                main_window.status_bar.showMessage(f"Added: {', '.join(added)}", 3000)
+        
+        if already_exists:
+            QMessageBox.information(
+                self,
+                "Already Exists",
+                f"These symbols already exist:\n{', '.join(already_exists)}"
+            )
+    
+    def _remove_selected_stocks(self):
+        """Remove unchecked stocks from the list."""
+        unchecked = [sym for sym, cb in self.stock_checkboxes.items() if not cb.isChecked()]
+        
+        if not unchecked:
+            QMessageBox.information(
+                self,
+                "No Selection",
+                "Uncheck the stocks you want to remove, then click Remove."
+            )
+            return
+        
+        reply = QMessageBox.question(
+            self,
+            "Remove Stocks",
+            f"Remove {len(unchecked)} unchecked stock(s) from the list?\n\n"
+            f"{', '.join(sorted(unchecked)[:10])}{'...' if len(unchecked) > 10 else ''}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            # Keep only checked stocks
+            remaining = [sym for sym, cb in self.stock_checkboxes.items() if cb.isChecked()]
+            self._populate_stock_checkboxes(remaining, checked=True)
+            
+            main_window = self.window()
+            if hasattr(main_window, 'status_bar'):
+                main_window.status_bar.showMessage(f"Removed {len(unchecked)} stock(s)", 3000)
     
     def _create_strategies_panel(self):
         """Create the strategies toggle panel."""
         group = QGroupBox("STRATEGIES")
-        group.setFont(QFont("-apple-system", 10, QFont.Weight.Bold))
+        group.setFont(QFont("Helvetica Neue", 10, QFont.Weight.Bold))
         layout = QVBoxLayout(group)
         
         # Strategy checkboxes
@@ -716,12 +942,12 @@ class ScreenerTab(QWidget):
     def _create_time_panel(self):
         """Create the time configuration panel."""
         group = QGroupBox("TIME CONFIG")
-        group.setFont(QFont("-apple-system", 10, QFont.Weight.Bold))
+        group.setFont(QFont("Helvetica Neue", 10, QFont.Weight.Bold))
         layout = QVBoxLayout(group)
         
         # Historical Data section
         hist_label = QLabel("Historical Data (RSI/EMA):")
-        hist_label.setFont(QFont("-apple-system", 9, QFont.Weight.Bold))
+        hist_label.setFont(QFont("Helvetica Neue", 9, QFont.Weight.Bold))
         layout.addWidget(hist_label)
         
         # Period dropdown
@@ -754,7 +980,7 @@ class ScreenerTab(QWidget):
         
         # HV Calculation section
         hv_label = QLabel("HV Calculation:")
-        hv_label.setFont(QFont("-apple-system", 9, QFont.Weight.Bold))
+        hv_label.setFont(QFont("Helvetica Neue", 9, QFont.Weight.Bold))
         layout.addWidget(hv_label)
         
         # HV Period dropdown
@@ -782,6 +1008,273 @@ class ScreenerTab(QWidget):
         
         return group
     
+    def _create_opstra_panel(self):
+        """Create the Opstra IV configuration panel."""
+        group = QGroupBox("OPSTRA IV")
+        group.setFont(QFont("Helvetica Neue", 10, QFont.Weight.Bold))
+        layout = QVBoxLayout(group)
+        
+        # Status section
+        status_label = QLabel("Session Status:")
+        status_label.setFont(QFont("Helvetica Neue", 9, QFont.Weight.Bold))
+        layout.addWidget(status_label)
+        
+        self.opstra_status = QLabel("Checking...")
+        self.opstra_status.setStyleSheet("""
+            QLabel {
+                padding: 5px 10px;
+                border-radius: 3px;
+                font-weight: bold;
+            }
+        """)
+        layout.addWidget(self.opstra_status)
+        
+        # Check status button
+        check_btn = QPushButton("🔄 Check Status")
+        check_btn.setToolTip("Check if current Opstra session is valid")
+        check_btn.clicked.connect(self._update_opstra_status)
+        layout.addWidget(check_btn)
+        
+        # Separator
+        layout.addSpacing(10)
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setStyleSheet("background-color: #ddd;")
+        layout.addWidget(line)
+        layout.addSpacing(5)
+        
+        # Actions section
+        actions_label = QLabel("Actions:")
+        actions_label.setFont(QFont("Helvetica Neue", 9, QFont.Weight.Bold))
+        layout.addWidget(actions_label)
+        
+        # Refresh session button (opens browser)
+        self.refresh_btn = QPushButton("🌐 Refresh Session")
+        self.refresh_btn.setToolTip("Open browser to refresh Opstra session cookies")
+        self.refresh_btn.clicked.connect(lambda: self._refresh_opstra_session(force=False))
+        layout.addWidget(self.refresh_btn)
+        
+        # Force login button
+        force_login_btn = QPushButton("🔑 Force Re-Login")
+        force_login_btn.setToolTip("Force a new login even if session exists")
+        force_login_btn.clicked.connect(lambda: self._refresh_opstra_session(force=True))
+        layout.addWidget(force_login_btn)
+        
+        # Manual cookies button
+        manual_btn = QPushButton("✏️ Enter Cookies Manually")
+        manual_btn.setToolTip("Manually enter JSESSIONID and DSESSIONID")
+        manual_btn.clicked.connect(self._manual_cookie_entry)
+        layout.addWidget(manual_btn)
+        
+        # Separator
+        layout.addSpacing(10)
+        line2 = QFrame()
+        line2.setFrameShape(QFrame.Shape.HLine)
+        line2.setStyleSheet("background-color: #ddd;")
+        layout.addWidget(line2)
+        layout.addSpacing(5)
+        
+        # Settings section
+        settings_label = QLabel("Settings:")
+        settings_label.setFont(QFont("Helvetica Neue", 9, QFont.Weight.Bold))
+        layout.addWidget(settings_label)
+        
+        # Skip Opstra checkbox
+        self.skip_opstra_cb = QCheckBox("Skip Opstra (use HV only)")
+        self.skip_opstra_cb.setToolTip("Skip Opstra IV data and use Historical Volatility as fallback")
+        self.skip_opstra_cb.stateChanged.connect(self._on_skip_opstra_changed)
+        layout.addWidget(self.skip_opstra_cb)
+        
+        # Clear profile button
+        clear_btn = QPushButton("🗑️ Clear Saved Profile")
+        clear_btn.setToolTip("Delete saved Chrome profile (requires re-login)")
+        clear_btn.clicked.connect(self._clear_opstra_profile)
+        layout.addWidget(clear_btn)
+        
+        layout.addStretch()
+        
+        return group
+    
+    def _update_opstra_status(self):
+        """Check and update Opstra session status."""
+        try:
+            from screener.iv.opstra import is_opstra_configured, validate_opstra_session
+            
+            if not is_opstra_configured():
+                self.opstra_status.setText("❌ Not Configured")
+                self.opstra_status.setStyleSheet("""
+                    QLabel {
+                        padding: 5px 10px;
+                        border-radius: 3px;
+                        font-weight: bold;
+                        background-color: #ffebee;
+                        color: #c62828;
+                    }
+                """)
+                return
+            
+            if validate_opstra_session():
+                self.opstra_status.setText("✅ Active")
+                self.opstra_status.setStyleSheet("""
+                    QLabel {
+                        padding: 5px 10px;
+                        border-radius: 3px;
+                        font-weight: bold;
+                        background-color: #e8f5e9;
+                        color: #2e7d32;
+                    }
+                """)
+            else:
+                self.opstra_status.setText("⚠️ Expired")
+                self.opstra_status.setStyleSheet("""
+                    QLabel {
+                        padding: 5px 10px;
+                        border-radius: 3px;
+                        font-weight: bold;
+                        background-color: #fff3e0;
+                        color: #e65100;
+                    }
+                """)
+        except Exception as e:
+            self.opstra_status.setText("❓ Error")
+            self.opstra_status.setStyleSheet("""
+                QLabel {
+                    padding: 5px 10px;
+                    border-radius: 3px;
+                    font-weight: bold;
+                    background-color: #fce4ec;
+                    color: #880e4f;
+                }
+            """)
+    
+    def _refresh_opstra_session(self, force=False):
+        """Refresh Opstra session via browser."""
+        if self.opstra_worker and self.opstra_worker.isRunning():
+            QMessageBox.warning(self, "In Progress", "Opstra refresh is already in progress.")
+            return
+        
+        # Disable buttons during refresh
+        self.refresh_btn.setEnabled(False)
+        self.opstra_status.setText("🔄 Refreshing...")
+        self.opstra_status.setStyleSheet("""
+            QLabel {
+                padding: 5px 10px;
+                border-radius: 3px;
+                font-weight: bold;
+                background-color: #e3f2fd;
+                color: #1565c0;
+            }
+        """)
+        
+        # Get the main window to update status bar
+        main_window = self.window()
+        if hasattr(main_window, 'status_bar'):
+            main_window.status_bar.showMessage("Opening browser for Opstra login...")
+        
+        # Start worker thread
+        self.opstra_worker = OpstraRefreshWorker(force_login=force)
+        self.opstra_worker.finished.connect(self._on_opstra_refresh_finished)
+        self.opstra_worker.start()
+    
+    def _on_opstra_refresh_finished(self, success, message):
+        """Handle Opstra refresh completion."""
+        self.refresh_btn.setEnabled(True)
+        
+        main_window = self.window()
+        if hasattr(main_window, 'status_bar'):
+            main_window.status_bar.showMessage(message, 5000)
+        
+        self._update_opstra_status()
+        
+        if success:
+            QMessageBox.information(self, "Opstra Refresh", message)
+        else:
+            QMessageBox.warning(self, "Opstra Refresh", message)
+    
+    def _manual_cookie_entry(self):
+        """Open dialog for manual cookie entry."""
+        # Get JSESSIONID
+        jsessionid, ok1 = QInputDialog.getText(
+            self, 
+            "Enter JSESSIONID",
+            "JSESSIONID cookie value:\n(Get from browser DevTools > Application > Cookies)",
+            QLineEdit.EchoMode.Normal,
+            ""
+        )
+        
+        if not ok1 or not jsessionid.strip():
+            return
+        
+        # Get DSESSIONID
+        dsessionid, ok2 = QInputDialog.getText(
+            self,
+            "Enter DSESSIONID",
+            "DSESSIONID cookie value:",
+            QLineEdit.EchoMode.Normal,
+            ""
+        )
+        
+        if not ok2 or not dsessionid.strip():
+            return
+        
+        try:
+            from screener.iv.opstra import set_opstra_cookies
+            set_opstra_cookies(jsessionid.strip(), dsessionid.strip())
+            
+            self._update_opstra_status()
+            
+            QMessageBox.information(
+                self,
+                "Cookies Set",
+                "Opstra cookies have been set. Click 'Check Status' to validate."
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to set cookies: {str(e)}"
+            )
+    
+    def _on_skip_opstra_changed(self, state):
+        """Handle skip Opstra checkbox change."""
+        self.skip_opstra = (state == Qt.CheckState.Checked.value)
+        
+        main_window = self.window()
+        if hasattr(main_window, 'status_bar'):
+            if self.skip_opstra:
+                main_window.status_bar.showMessage("Opstra skipped - using Historical Volatility only", 3000)
+            else:
+                main_window.status_bar.showMessage("Opstra enabled", 3000)
+    
+    def _clear_opstra_profile(self):
+        """Clear the saved Chrome profile."""
+        reply = QMessageBox.question(
+            self,
+            "Clear Profile",
+            "This will delete the saved Chrome profile.\nYou will need to login again.\n\nContinue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                from screener.iv.opstra_login import clear_opstra_profile
+                clear_opstra_profile()
+                
+                self._update_opstra_status()
+                
+                QMessageBox.information(
+                    self,
+                    "Profile Cleared",
+                    "Chrome profile has been deleted. You will need to login again."
+                )
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Failed to clear profile: {str(e)}"
+                )
+    
     def _create_control_panel(self):
         """Create the control panel with Run button and output path."""
         frame = QFrame()
@@ -797,7 +1290,7 @@ class ScreenerTab(QWidget):
         
         # Run button
         self.run_button = QPushButton("▶  Run Single Scan")
-        self.run_button.setFont(QFont("-apple-system", 11, QFont.Weight.Bold))
+        self.run_button.setFont(QFont("Helvetica Neue", 11, QFont.Weight.Bold))
         self.run_button.setMinimumHeight(45)
         self.run_button.setMinimumWidth(180)
         self.run_button.setStyleSheet("""
@@ -868,6 +1361,7 @@ class ScreenerTab(QWidget):
             'trend_interval': self.trend_interval_combo.currentText(),
             'hv_period': self.hv_period_combo.currentText(),
             'hv_window': self.hv_window_spin.value(),
+            'skip_opstra': self.skip_opstra,
         }
     
     def _run_scan(self):
@@ -905,8 +1399,9 @@ class ScreenerTab(QWidget):
     
     def _on_scan_progress(self, message):
         """Handle scan progress updates."""
-        # Could update a status bar here if we had access to main window
-        pass
+        main_window = self.window()
+        if hasattr(main_window, 'status_bar'):
+            main_window.status_bar.showMessage(message)
     
     def _on_scan_finished(self, alert_count, message):
         """Handle scan completion."""
@@ -956,13 +1451,13 @@ class ScreenerMainWindow(QMainWindow):
         
         # Title
         title_label = QLabel("Smart Options Screener v3.3")
-        title_label.setFont(QFont("-apple-system", 18, QFont.Weight.Bold))
+        title_label.setFont(QFont("Helvetica Neue", 18, QFont.Weight.Bold))
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(title_label)
         
         # Tab widget
         self.tabs = QTabWidget()
-        self.tabs.setFont(QFont("-apple-system", 11))
+        self.tabs.setFont(QFont("Helvetica Neue", 11))
         self.tabs.setStyleSheet("""
             QTabWidget::pane {
                 border: 1px solid #ddd;

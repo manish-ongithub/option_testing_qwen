@@ -9,10 +9,26 @@ from screener.iv.historical import calculate_historical_volatility
 from screener.utils.logging_setup import logger
 
 
+# Global flag to skip Opstra (can be set by UI or CLI)
+_SKIP_OPSTRA = False
+
+
+def set_skip_opstra(skip: bool):
+    """Set whether to skip Opstra and use HV only."""
+    global _SKIP_OPSTRA
+    _SKIP_OPSTRA = skip
+    logger.debug("Skip Opstra set to: %s", skip)
+
+
+def is_skip_opstra_enabled() -> bool:
+    """Check if Opstra is being skipped."""
+    return _SKIP_OPSTRA
+
+
 def get_iv_data(symbol):
     """
     Get IV data with fallback chain:
-    1. Try Opstra API (if cookies configured)
+    1. Try Opstra API (if cookies configured and not skipped)
     2. Fall back to Historical Volatility calculation
     3. Return defaults with warning
     
@@ -22,8 +38,8 @@ def get_iv_data(symbol):
     Returns:
         dict: {'iv': float, 'iv_percentile': int, 'iv_rank': int, 'source': str}
     """
-    # Try Opstra first
-    if is_opstra_configured():
+    # Try Opstra first (unless skipped)
+    if not _SKIP_OPSTRA and is_opstra_configured():
         opstra_data = get_iv_from_opstra(symbol)
         if opstra_data:
             return opstra_data
