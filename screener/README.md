@@ -331,7 +331,7 @@ alerts = scan_index('NIFTY', 60, 'NORMAL_VOL', 15.5, market_open=True)
 ### IV Data
 
 ```python
-from screener.iv import get_iv_data, set_opstra_cookies, is_opstra_configured
+from screener.iv import get_iv_data, set_opstra_cookies, is_opstra_configured, set_skip_opstra
 
 # Check if Opstra is configured
 if not is_opstra_configured():
@@ -340,6 +340,14 @@ if not is_opstra_configured():
 # Get IV data for a symbol
 iv_data = get_iv_data('RELIANCE')
 # Returns: {'iv': 28.5, 'iv_percentile': 65, 'iv_rank': 55, 'source': 'opstra'}
+
+# Skip Opstra and use Historical Volatility only
+set_skip_opstra(True)
+iv_data = get_iv_data('RELIANCE')
+# Returns: {'iv': 25.3, 'iv_percentile': 50, 'iv_rank': 50, 'source': 'historical'}
+
+# Re-enable Opstra
+set_skip_opstra(False)
 ```
 
 ### Market Status
@@ -400,13 +408,24 @@ This shows detailed skip reasons:
 
 The Screener tab provides a visual interface for configuring and running scans:
 
-- **Symbol Selection**: Choose from 2 indices (NIFTY, BANKNIFTY) and 56 F&O stocks
+- **Symbol Selection**: Choose from 2 indices (NIFTY, BANKNIFTY) and 56+ F&O stocks
+  - ➕ **Add Stock**: Add custom stock symbols (comma-separated)
+  - ➖ **Remove Stock**: Remove unchecked stocks from the list
+  - Dynamic stock count with Select All / Clear All buttons
 - **Strategy Toggles**: Enable/disable any of the 6 supported strategies
 - **Time Configuration**:
   - Historical Data Period (1w, 1mo, 3mo, 6mo, 1y) for RSI/EMA calculations
   - Historical Data Interval (1d, 1h, 5m) for trend analysis
   - HV Calculation Period (3mo, 6mo, 1y, 2y) for volatility lookback
   - HV Rolling Window (10-60 days) for volatility calculation
+- **Opstra IV Configuration**:
+  - Session Status display (✅ Active / ⚠️ Expired / ❌ Not Configured)
+  - 🔄 Check Status button to validate current session
+  - 🌐 Refresh Session button (opens browser for auto-login)
+  - 🔑 Force Re-Login button (force new login even if profile exists)
+  - ✏️ Enter Cookies Manually dialog (for manual JSESSIONID/DSESSIONID entry)
+  - ☑️ Skip Opstra checkbox (use Historical Volatility only)
+  - 🗑️ Clear Saved Profile button (delete Chrome profile for troubleshooting)
 
 ### Alert Viewer Tab
 
@@ -414,6 +433,7 @@ The Alert Viewer tab allows you to load and analyze saved alerts:
 
 - **Load Alert Files**: Supports both JSON and CSV formats
 - **Alert Table**: View all alerts with key metrics (Symbol, Strategy, Strike, Premium, etc.)
+- **Multi-Leg Strategy Support**: Properly handles strangles, straddles, and spreads with strike formats like "60000/60400"
 - **Basic Analysis Report**: Comprehensive report including:
   - Basic information and IV analysis
   - Greeks calculation and interpretation
@@ -431,6 +451,24 @@ The Alert Viewer tab allows you to load and analyze saved alerts:
   - Final recommendation (Trade/Avoid/Paper Trade)
 
 ## Changelog
+
+### v3.3.2 (January 2026)
+
+- **NEW**: Opstra IV Configuration Panel in GUI
+  - Session status display with validation
+  - Browser-based session refresh
+  - Manual cookie entry dialog
+  - Skip Opstra option (use HV only)
+  - Clear profile button for troubleshooting
+- **NEW**: Dynamic Stock Management in GUI
+  - Add custom stock symbols (comma-separated input)
+  - Remove unchecked stocks from the list
+  - Session-based changes (doesn't modify config.py)
+- **FIX**: Multi-leg strategy analysis now works correctly
+  - Handle strike formats like "60000/60400" for strangles/straddles
+  - Extract leg1/leg2 data for proper analysis
+- **NEW**: `set_skip_opstra()` function in `iv/provider.py`
+- Improved: Error handling for numeric value conversion in analysis
 
 ### v3.3.1 (January 2026)
 
@@ -456,5 +494,5 @@ Internal use only.
 
 ---
 
-*Package Version: 3.3.1 | Last Updated: January 2026*
+*Package Version: 3.3.2 | Last Updated: January 2026*
 
