@@ -14,6 +14,32 @@ from screener.config import (
 from screener.utils.logging_setup import logger
 
 
+# ================== CONFIGURABLE TREND PARAMETERS ==================
+# These can be overridden at runtime via set_trend_params()
+_TREND_PARAMS = {
+    'period': '1mo',   # Lookback period for RSI/EMA (1w, 1mo, 3mo, 6mo, 1y)
+    'interval': '1d',  # Data interval (1d, 1h, 5m)
+}
+
+
+def set_trend_params(period='1mo', interval='1d'):
+    """
+    Set the trend calculation parameters (used by compute_trend_indicators).
+    
+    Args:
+        period: Lookback period ('1w', '1mo', '3mo', '6mo', '1y')
+        interval: Data interval ('1d', '1h', '5m')
+    """
+    _TREND_PARAMS['period'] = period
+    _TREND_PARAMS['interval'] = interval
+    logger.debug("Trend params set: period=%s, interval=%s", period, interval)
+
+
+def get_trend_params():
+    """Get current trend calculation parameters."""
+    return _TREND_PARAMS.copy()
+
+
 def get_lot_size(symbol):
     """Get the lot size for a symbol."""
     return LOT_SIZES.get(symbol, DEFAULT_LOT_SIZE)
@@ -205,16 +231,27 @@ def get_underlying_price(symbol):
     return None
 
 
-def compute_trend_indicators(symbol):
+def compute_trend_indicators(symbol, period=None, interval=None):
     """
     Compute RSI and trend bias for a symbol.
+    
+    Args:
+        symbol: Stock or index symbol
+        period: Lookback period (default: use _TREND_PARAMS)
+        interval: Data interval (default: use _TREND_PARAMS)
     
     Returns:
         dict: {'bias': 'BULLISH'|'BEARISH'|'NEUTRAL', 'rsi': float}
     """
+    # Use configurable params if not specified
+    if period is None:
+        period = _TREND_PARAMS['period']
+    if interval is None:
+        interval = _TREND_PARAMS['interval']
+    
     try:
         ticker = SYMBOL_MAP.get(symbol, f"{symbol}.NS")
-        hist = yf.Ticker(ticker).history(period="1mo", interval="1d")
+        hist = yf.Ticker(ticker).history(period=period, interval=interval)
         
         if len(hist) < 14:
             return {'bias': 'NEUTRAL', 'rsi': 50}

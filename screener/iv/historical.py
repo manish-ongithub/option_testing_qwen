@@ -11,7 +11,33 @@ from screener.config import SYMBOL_MAP
 from screener.utils.logging_setup import logger
 
 
-def calculate_historical_volatility(symbol, period=30):
+# ================== CONFIGURABLE HV PARAMETERS ==================
+# These can be overridden at runtime via set_hv_params()
+_HV_PARAMS = {
+    'period': '1y',    # Lookback period for HV calculation ('3mo', '6mo', '1y', '2y')
+    'window': 30,      # Rolling window in days (10-60)
+}
+
+
+def set_hv_params(period='1y', window=30):
+    """
+    Set the HV calculation parameters.
+    
+    Args:
+        period: Lookback period ('3mo', '6mo', '1y', '2y')
+        window: Rolling window in days (10-60)
+    """
+    _HV_PARAMS['period'] = period
+    _HV_PARAMS['window'] = window
+    logger.debug("HV params set: period=%s, window=%d", period, window)
+
+
+def get_hv_params():
+    """Get current HV calculation parameters."""
+    return _HV_PARAMS.copy()
+
+
+def calculate_historical_volatility(symbol, period=None, window=None):
     """
     Calculate Historical Volatility (HV) from price data as a fallback.
     
@@ -19,16 +45,23 @@ def calculate_historical_volatility(symbol, period=30):
     
     Args:
         symbol: Stock or index symbol
-        period: Rolling window period (default: 30 days)
+        period: Lookback period for data (default: use _HV_PARAMS['period'])
+        window: Rolling window in days (default: use _HV_PARAMS['window'])
     
     Returns:
         dict: {'iv': float, 'iv_percentile': int, 'iv_rank': int, 'source': 'hv_calculated'} or None
     """
+    # Use configurable params if not specified
+    if period is None:
+        period = _HV_PARAMS['period']
+    if window is None:
+        window = _HV_PARAMS['window']
+    
     try:
         ticker = SYMBOL_MAP.get(symbol, f"{symbol}.NS")
         
-        # Fetch 1 year of daily data
-        hist = yf.Ticker(ticker).history(period="1y", interval="1d")
+        # Fetch historical data based on configured period
+        hist = yf.Ticker(ticker).history(period=period, interval="1d")
         
         if len(hist) < 60:  # Need at least 60 days
             return None
@@ -36,8 +69,8 @@ def calculate_historical_volatility(symbol, period=30):
         # Calculate daily returns
         hist['returns'] = np.log(hist['Close'] / hist['Close'].shift(1))
         
-        # Calculate rolling 30-day HV (annualized)
-        hist['hv'] = hist['returns'].rolling(window=period).std() * np.sqrt(252) * 100
+        # Calculate rolling HV (annualized) using configured window
+        hist['hv'] = hist['returns'].rolling(window=window).std() * np.sqrt(252) * 100
         
         # Drop NaN values
         hv_values = hist['hv'].dropna().values

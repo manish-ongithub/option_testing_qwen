@@ -196,6 +196,118 @@ def _save_alerts(unique_alerts):
     logger.info("  JSON: %s", JSON_FILE)
 
 
+def run_scan_with_config(
+    indices=None,
+    stocks=None,
+    strategies=None,
+    trend_period='1mo',
+    trend_interval='1d',
+    hv_period='1y',
+    hv_window=30,
+    progress_callback=None
+):
+    """
+    Run a scan with custom configuration from the UI.
+    
+    Args:
+        indices: List of index symbols to scan (None = use config defaults)
+        stocks: List of stock symbols to scan (None = use config defaults)
+        strategies: List of strategy names to include (None = all)
+        trend_period: Period for RSI/EMA calculation ('1w', '1mo', '3mo', '6mo', '1y')
+        trend_interval: Interval for trend data ('1d', '1h', '5m')
+        hv_period: Period for HV calculation ('3mo', '6mo', '1y', '2y')
+        hv_window: Rolling window days for HV calculation (10-60)
+        progress_callback: Optional callback function for progress updates
+    
+    Returns:
+        int: Number of alerts generated
+    """
+    from screener.utils.helpers import set_trend_params
+    from screener.iv.historical import set_hv_params
+    
+    # Set time parameters for calculations
+    set_trend_params(period=trend_period, interval=trend_interval)
+    set_hv_params(period=hv_period, window=hv_window)
+    
+    # Use defaults if not specified
+    scan_indices = indices if indices is not None else INDEX_SYMBOLS
+    scan_stocks = stocks if stocks is not None else STOCK_SYMBOLS
+    enabled_strategies = set(strategies) if strategies else None
+    
+    def _progress(msg):
+        if progress_callback:
+            progress_callback(msg)
+        logger.info(msg)
+    
+    _progress("=" * 80)
+    _progress("Starting scan with custom configuration...")
+    
+    market_open = is_market_hours()
+    opstra_status = "CONFIGURED" if is_opstra_configured() else "NOT SET (using HV fallback)"
+    
+    # Check if we should skip scanning when market is closed
+    if not market_open and not ALLOW_AFTER_HOURS_SCAN:
+        _progress("Market: CLOSED | Scanning disabled outside market hours")
+        return 0
+    
+    mode_str = "LIVE" if market_open else "AFTER-HOURS (relaxed filters)"
+    _progress(f"Market: {'OPEN' if market_open else 'CLOSED'} | Mode: {mode_str} | Opstra: {opstra_status}")
+    
+    vix = get_india_vix()
+    regime = determine_market_regime(vix)
+    
+    _progress(f"VIX={vix:.1f} | Regime={regime}")
+    _progress(f"Time Config: Trend={trend_period}/{trend_interval} | HV={hv_period}/Window={hv_window}d")
+    _progress("=" * 80)
+    
+    all_alerts = []
+    
+    # Scan indices
+    if scan_indices:
+        _progress(f"\n--- Scanning Indices ({len(scan_indices)}) ---")
+        for sym in scan_indices:
+            alerts = scan_index(sym, 60, regime, vix, market_open)
+            all_alerts.extend(alerts)
+    
+    # Scan stocks
+    if scan_stocks:
+        _progress(f"\n--- Scanning Stocks ({len(scan_stocks)}) ---")
+        total_stocks = len(scan_stocks)
+        for i, sym in enumerate(scan_stocks):
+            if (i + 1) % 10 == 0:
+                _progress(f"Progress: {i + 1}/{total_stocks}...")
+            alerts = scan_stock(sym, regime, vix, market_open)
+            all_alerts.extend(alerts)
+            time.sleep(0.3)
+    
+    # Filter by enabled strategies if specified
+    if enabled_strategies:
+        all_alerts = [a for a in all_alerts if a.get('strategy') in enabled_strategies]
+    
+    # Deduplicate
+    seen = set()
+    unique_alerts = []
+    for a in all_alerts:
+        key = (a['strategy'], a['symbol'], a['strike'])
+        if key not in seen:
+            seen.add(key)
+            unique_alerts.append(a)
+    
+    unique_alerts.sort(key=lambda x: x.get('volume', 0), reverse=True)
+    
+    _progress("=" * 80)
+    _progress(f"SCAN COMPLETE: {len(unique_alerts)} unique alerts")
+    _progress("=" * 80)
+    
+    if unique_alerts:
+        _print_top_alerts(unique_alerts)
+        _save_alerts(unique_alerts)
+    else:
+        _progress("\nNo alerts generated.")
+    
+    return len(unique_alerts)
+
+
 def run_scheduler(interval_seconds=300, force_refresh_opstra=False, skip_opstra=False):
     """
     Run the screener on a schedule.

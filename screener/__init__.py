@@ -8,16 +8,19 @@ A modular options screener for NSE stocks and indices with support for:
 - Real-time and after-hours scanning modes
 
 Usage:
-    # Run the screener
+    # Run the screener (CLI)
     python -m screener.main
     
+    # Run the GUI
+    python -m screener.ui.screener_gui
+    
     # Or import and use programmatically
-    from screener import job, scan_stock, scan_index
+    from screener import job, scan_stock, scan_index, run_scan_with_config
     from screener.config import STOCK_SYMBOLS, INDEX_SYMBOLS
     from screener.iv import set_opstra_cookies
 """
 
-from screener.main import job, run_scheduler
+from screener.main import job, run_scheduler, run_scan_with_config
 from screener.config import STOCK_SYMBOLS, INDEX_SYMBOLS
 from screener.scanners import scan_stock, scan_index
 from screener.iv import set_opstra_cookies, is_opstra_configured, get_iv_data
@@ -29,6 +32,7 @@ __all__ = [
     # Main functions
     "job",
     "run_scheduler",
+    "run_scan_with_config",
     # Scanners
     "scan_stock",
     "scan_index",

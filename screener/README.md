@@ -1,9 +1,10 @@
 # Smart Options Screener v3.3
 
-A modular Python package for scanning NSE options with support for 6 trading strategies, real-time IV data, and intelligent filtering.
+A modular Python package for scanning NSE options with support for 6 trading strategies, real-time IV data, intelligent filtering, and a full-featured PyQt6 GUI.
 
 ## Features
 
+- **PyQt6 GUI Application**: User-friendly desktop interface for configuring scans and analyzing alerts
 - **6 Options Strategies**: Long Call, Long Put, Bull Call Spread, Bear Put Spread, Long Straddle, Long Strangle
 - **Real-time IV Data**: Integration with Opstra API for accurate Implied Volatility metrics
 - **Historical Volatility Fallback**: Automatic fallback to calculated HV when Opstra data is unavailable
@@ -13,6 +14,7 @@ A modular Python package for scanning NSE options with support for 6 trading str
 - **After-Hours Mode**: Relaxed OI-only filters for scanning outside market hours
 - **Multi-Leg Strategy Support**: Calculates max profit, max loss, breakeven, and reward/risk ratio
 - **NSE API v3 Integration**: Uses latest NSE API endpoints for reliable option chain data
+- **Alert Analyzer Integration**: Built-in basic and enhanced analysis reports for any alert
 
 ## Installation
 
@@ -31,12 +33,25 @@ source venv_qwen/bin/activate
 - requests
 - schedule
 - pytz
+- PyQt6 (for GUI)
+- scipy (for Black-Scholes calculations)
 - selenium (for Opstra auto-login)
 - webdriver-manager (for Opstra auto-login)
 
 ## Quick Start
 
-### Run the Screener
+### Run the GUI (Recommended)
+
+```bash
+# Launch the graphical interface
+python -m screener.ui.screener_gui
+```
+
+The GUI provides two tabs:
+- **Screener Tab**: Configure symbols, strategies, and time parameters, then run scans
+- **Alert Viewer Tab**: Load JSON/CSV alert files and generate detailed analysis reports
+
+### Run the Screener (CLI)
 
 ```bash
 # From the project root directory
@@ -73,9 +88,13 @@ alerts = scan_stock('RELIANCE', regime, vix, market_open)
 ```
 screener/
 ├── __init__.py                 # Package exports
-├── main.py                     # Entry point, job(), run_scheduler()
+├── main.py                     # Entry point, job(), run_scheduler(), run_scan_with_config()
 ├── config.py                   # All configuration constants
 ├── README.md                   # This file
+│
+├── ui/                         # PyQt6 GUI Application
+│   ├── __init__.py
+│   └── screener_gui.py         # Main GUI with Screener and Alert Viewer tabs
 │
 ├── api/                        # NSE API integration
 │   ├── __init__.py
@@ -87,7 +106,7 @@ screener/
 │   ├── __init__.py
 │   ├── opstra.py               # Opstra API integration
 │   ├── opstra_login.py         # Auto-login with persistent Chrome profile
-│   ├── historical.py           # Historical volatility calculation
+│   ├── historical.py           # Historical volatility calculation (configurable)
 │   └── provider.py             # Unified get_iv_data() interface
 │
 ├── strategies/                 # Trading strategies
@@ -111,7 +130,7 @@ screener/
 └── utils/                      # Utilities
     ├── __init__.py
     ├── logging_setup.py        # Logger configuration
-    └── helpers.py              # Helper functions
+    └── helpers.py              # Helper functions (configurable trend params)
 ```
 
 ## Configuration
@@ -375,7 +394,52 @@ This shows detailed skip reasons:
 | Opstra API | Implied Volatility, IV Percentile, IV Rank |
 | NSE India | India VIX for market regime |
 
+## GUI Features
+
+### Screener Tab
+
+The Screener tab provides a visual interface for configuring and running scans:
+
+- **Symbol Selection**: Choose from 2 indices (NIFTY, BANKNIFTY) and 56 F&O stocks
+- **Strategy Toggles**: Enable/disable any of the 6 supported strategies
+- **Time Configuration**:
+  - Historical Data Period (1w, 1mo, 3mo, 6mo, 1y) for RSI/EMA calculations
+  - Historical Data Interval (1d, 1h, 5m) for trend analysis
+  - HV Calculation Period (3mo, 6mo, 1y, 2y) for volatility lookback
+  - HV Rolling Window (10-60 days) for volatility calculation
+
+### Alert Viewer Tab
+
+The Alert Viewer tab allows you to load and analyze saved alerts:
+
+- **Load Alert Files**: Supports both JSON and CSV formats
+- **Alert Table**: View all alerts with key metrics (Symbol, Strategy, Strike, Premium, etc.)
+- **Basic Analysis Report**: Comprehensive report including:
+  - Basic information and IV analysis
+  - Greeks calculation and interpretation
+  - Breakeven and profit analysis
+  - Scenario analysis (price moves, time decay, IV changes)
+  - Risk/Reward analysis and position sizing
+  - Liquidity assessment and trade checklist
+  - Suggested trade plan
+- **Enhanced Analysis Report**: Advanced report with:
+  - Price history analysis (6 months)
+  - Technical indicators (RSI, MACD, Bollinger Bands, ATR, EMAs)
+  - Support & Resistance level detection
+  - Trend verdict with signal alignment check
+  - Comprehensive trade scoring (0-100%)
+  - Final recommendation (Trade/Avoid/Paper Trade)
+
 ## Changelog
+
+### v3.3.1 (January 2026)
+
+- **NEW**: PyQt6 GUI application with tabbed interface
+- **NEW**: Alert Viewer tab for loading JSON/CSV alert files
+- **NEW**: Integrated Basic and Enhanced Analysis reports
+- **NEW**: Configurable time parameters for trend and HV calculations
+- **NEW**: `run_scan_with_config()` function for programmatic scanning with custom config
+- Improved: `set_trend_params()` and `set_hv_params()` for runtime configuration
 
 ### v3.3.0 (December 2024)
 
@@ -392,5 +456,5 @@ Internal use only.
 
 ---
 
-*Package Version: 3.3.0 | Last Updated: December 2024*
+*Package Version: 3.3.1 | Last Updated: January 2026*
 
