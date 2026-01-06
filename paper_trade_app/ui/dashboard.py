@@ -454,6 +454,7 @@ class AlertItemWidget(QWidget):
     Custom widget for each alert in the Signal Inbox.
     Contains alert info, status indicator, and action buttons.
     Enhanced to display screener data fields and multi-leg strategies.
+    Now includes live LTP (Last Traded Price) display.
     """
     enter_trade_clicked = pyqtSignal(dict)
     square_off_clicked = pyqtSignal(dict)
@@ -465,6 +466,8 @@ class AlertItemWidget(QWidget):
         self.alert_data = alert_data
         self.is_traded = False
         self.is_squared_off = False
+        self.token = None  # Will be set when subscribed to live data
+        self.last_ltp = 0.0  # Track last LTP for color changes
         
         self._setup_ui()
     
@@ -522,11 +525,28 @@ class AlertItemWidget(QWidget):
             main_text = f"{action} {symbol} {strike}{option_type} @ ₹{price:.2f}"
             main_color = '#00E676' if action == 'BUY' else '#FF5252'
         
+        # Main line with symbol info
+        main_row = QHBoxLayout()
+        main_row.setSpacing(8)
+        
         self.main_label = QLabel(main_text)
         self.main_label.setStyleSheet(
             f"color: {main_color}; font-weight: bold; font-size: 13px;"
         )
-        info_layout.addWidget(self.main_label)
+        main_row.addWidget(self.main_label)
+        
+        # LTP display - shows live price with color indication
+        self.ltp_label = QLabel("LTP: ---")
+        self.ltp_label.setStyleSheet(
+            "color: #888; font-size: 12px; font-weight: bold; "
+            "background-color: #2a2a2a; padding: 2px 8px; border-radius: 3px;"
+        )
+        self.ltp_label.setToolTip("Live Last Traded Price - Updates in real-time")
+        self.ltp_label.setFixedWidth(100)
+        main_row.addWidget(self.ltp_label)
+        main_row.addStretch()
+        
+        info_layout.addLayout(main_row)
         
         # Details line based on strategy type
         spot = self.alert_data.get('spot', 0)
@@ -735,6 +755,51 @@ class AlertItemWidget(QWidget):
                 padding-bottom: 4px;
             }
         """)
+    
+    def set_token(self, token: int):
+        """Set the instrument token for this alert (for LTP updates)."""
+        self.token = token
+    
+    def update_ltp(self, ltp: float):
+        """
+        Update the LTP display with live price.
+        Colors: Green if price up, Red if down, White if unchanged.
+        """
+        # Format LTP text
+        self.ltp_label.setText(f"LTP: ₹{ltp:.2f}")
+        
+        # Determine color based on price change
+        if self.last_ltp > 0:
+            if ltp > self.last_ltp:
+                # Price went up - green
+                self.ltp_label.setStyleSheet(
+                    "color: #00E676; font-size: 12px; font-weight: bold; "
+                    "background-color: #1a3320; padding: 2px 8px; border-radius: 3px;"
+                )
+            elif ltp < self.last_ltp:
+                # Price went down - red
+                self.ltp_label.setStyleSheet(
+                    "color: #FF5252; font-size: 12px; font-weight: bold; "
+                    "background-color: #3d1a1a; padding: 2px 8px; border-radius: 3px;"
+                )
+            else:
+                # No change - neutral
+                self.ltp_label.setStyleSheet(
+                    "color: #FFF; font-size: 12px; font-weight: bold; "
+                    "background-color: #2a2a2a; padding: 2px 8px; border-radius: 3px;"
+                )
+        else:
+            # First update - neutral white
+            self.ltp_label.setStyleSheet(
+                "color: #FFF; font-size: 12px; font-weight: bold; "
+                "background-color: #2a2a2a; padding: 2px 8px; border-radius: 3px;"
+            )
+        
+        # Store for next comparison
+        self.last_ltp = ltp
+        
+        # Also update the alert_data for reference
+        self.alert_data['current_ltp'] = ltp
 
 
 class MainWindow(QMainWindow):
@@ -1298,6 +1363,44 @@ class MainWindow(QMainWindow):
             if widget.alert_data == alert_data:
                 widget.mark_as_squared_off()
                 break
+    
+    def set_alert_token(self, alert_data: dict, token: int):
+        """
+        Set the token for an alert widget to enable LTP updates.
+        
+        Args:
+            alert_data: The alert data dict to find the widget
+            token: The instrument token for this alert
+        """
+        for widget in self._alert_widgets:
+            if widget.alert_data == alert_data:
+                widget.set_token(token)
+                break
+    
+    def update_alert_ltp(self, token: int, ltp: float):
+        """
+        Update LTP for all alert widgets with matching token.
+        
+        Args:
+            token: Instrument token
+            ltp: Last traded price
+        """
+        for widget in self._alert_widgets:
+            if widget.token == token:
+                widget.update_ltp(ltp)
+    
+    def get_alert_tokens(self) -> dict:
+        """
+        Get all alert widgets that need token mapping.
+        
+        Returns:
+            Dict mapping alert index to alert_data for alerts without tokens
+        """
+        pending = {}
+        for i, widget in enumerate(self._alert_widgets):
+            if widget.token is None:
+                pending[i] = widget.alert_data
+        return pending
     
     def clear_alerts(self):
         """Clear all alerts from the inbox."""

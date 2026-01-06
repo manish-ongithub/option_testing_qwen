@@ -12,8 +12,38 @@ Orchestrates all components:
 - Session Management (Resume capability)
 """
 
+# ============================================================
+# CRITICAL: Qt Plugin Path Fix - MUST be at the very top
+# before ANY other imports that might trigger Qt loading
+# ============================================================
 import sys
 import os
+import sysconfig
+
+def _setup_qt_plugin_path():
+    """Configure Qt plugin path for PyQt6 on macOS."""
+    # Find site-packages and construct PyQt6 plugin path
+    site_packages = sysconfig.get_path('purelib')
+    if site_packages:
+        qt_plugins_path = os.path.join(site_packages, 'PyQt6', 'Qt6', 'plugins')
+        if os.path.exists(qt_plugins_path):
+            os.environ['QT_PLUGIN_PATH'] = qt_plugins_path
+            os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = os.path.join(qt_plugins_path, 'platforms')
+            return True
+    
+    # Fallback: search in sys.path
+    for path in sys.path:
+        if 'site-packages' in path:
+            qt_plugins_path = os.path.join(path, 'PyQt6', 'Qt6', 'plugins')
+            if os.path.exists(qt_plugins_path):
+                os.environ['QT_PLUGIN_PATH'] = qt_plugins_path
+                os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = os.path.join(qt_plugins_path, 'platforms')
+                return True
+    return False
+
+# Execute immediately before any other imports
+_setup_qt_plugin_path()
+
 import io
 import json
 import threading
@@ -105,6 +135,9 @@ class AppController:
         
         # Track order_id -> alert_data mapping for sync between Active Positions and Signal Inbox
         self._order_alert_map = {}  # {order_id: alert_data}
+        
+        # Track token -> alert_data mapping for LTP updates on alerts
+        self._alert_token_map = {}  # {token: [alert_data, ...]}
 
         # 3. Connect Signals & Slots
         self._connect_signals()
@@ -256,9 +289,10 @@ class AppController:
         self.worker.connection_signal.connect(self.ui.update_status)
         self.worker.error_signal.connect(lambda e: self.ui.append_log(f"❌ API Error: {e}"))
         
-        # === B. Ticks -> Trade Manager AND Live Ticker ===
+        # === B. Ticks -> Trade Manager, Live Ticker, AND Alert LTP Updates ===
         self.worker.tick_signal.connect(self.manager.on_tick)
         self.worker.tick_signal.connect(self._handle_ticker_update)
+        self.worker.tick_signal.connect(self._handle_alert_ltp_update)
         
         # Track tokens for live ticker display (separate from trading positions)
         self._ticker_tokens = {}  # {token: symbol_name}
@@ -327,6 +361,28 @@ class AppController:
             ltp = tick_data.get('ltp', 0.0)
             change = tick_data.get('change', 0.0)
             self.ui.update_ticker_price(token, ltp, change)
+    
+    def _handle_alert_ltp_update(self, tick_data):
+        """
+        Route tick data to alert widgets for LTP updates.
+        
+        Args:
+            tick_data: {'token': int/str, 'ltp': float, ...}
+        """
+        token = tick_data.get('token')
+        if token is None:
+            return
+        
+        # Convert token to int for consistent lookup
+        try:
+            token = int(token)
+        except (ValueError, TypeError):
+            return
+        
+        ltp = tick_data.get('ltp', 0.0)
+        if ltp > 0:
+            # Update all alert widgets with this token
+            self.ui.update_alert_ltp(token, ltp)
 
     def _start_services(self):
         """Start all background services."""
@@ -581,6 +637,7 @@ class AppController:
         Normalizes the alert data to handle both old and new (screener) formats.
         Only displays the alert in Signal Inbox - does NOT auto-trade.
         User must select an alert and click "Enter Trade" or "Square Off".
+        Also subscribes to live data for LTP updates.
         """
         # Normalize the alert to standard format
         alert_data = normalize_alert(raw_alert_data)
@@ -593,11 +650,69 @@ class AppController:
         option_type = alert_data.get('option_type', 'CE')
         quantity = alert_data.get('quantity', 0)
         price = alert_data.get('price_limit', 0)
+        expiry = alert_data.get('expiry', '')
         
         self.ui.append_log(
             f"📥 Alert received: {action} {symbol} {strike}{option_type} "
             f"@ ₹{price:.2f} (Qty: {quantity}) - Click 'Trade' to execute"
         )
+        
+        # Subscribe to live data for LTP updates
+        self._subscribe_alert_for_ltp(alert_data)
+    
+    def _subscribe_alert_for_ltp(self, alert_data: dict):
+        """
+        Subscribe an alert to live data feed for LTP updates.
+        Maps the alert's instrument and subscribes to tick data.
+        """
+        symbol = alert_data.get('symbol', '')
+        expiry = alert_data.get('expiry', '')
+        strike = alert_data.get('strike', 0)
+        option_type = alert_data.get('option_type', 'CE')
+        strategy_type = alert_data.get('strategy_type', 'single')
+        
+        # For volatility strategies (straddle/strangle), option_type might be the strategy name
+        if option_type in ('STRADDLE', 'STRANGLE'):
+            # Subscribe to both CE and PE legs
+            self._subscribe_leg_for_ltp(alert_data, symbol, expiry, strike, 'CE')
+            put_strike = alert_data.get('put_strike', strike)
+            self._subscribe_leg_for_ltp(alert_data, symbol, expiry, put_strike, 'PE')
+        elif strategy_type == 'spread':
+            # Subscribe to the primary (buying) leg
+            self._subscribe_leg_for_ltp(alert_data, symbol, expiry, strike, option_type)
+        else:
+            # Single leg strategy
+            self._subscribe_leg_for_ltp(alert_data, symbol, expiry, strike, option_type)
+    
+    def _subscribe_leg_for_ltp(self, alert_data: dict, symbol: str, expiry: str, strike: float, option_type: str):
+        """Subscribe a single leg to live data."""
+        try:
+            instrument = self.mapper.get_token(symbol, expiry, strike, option_type)
+            
+            if instrument:
+                token = int(instrument.token)
+                
+                # Set token on the alert widget
+                self.ui.set_alert_token(alert_data, token)
+                
+                # Track for LTP updates
+                if token not in self._alert_token_map:
+                    self._alert_token_map[token] = []
+                self._alert_token_map[token].append(alert_data)
+                
+                # Set initial price in simulator if applicable
+                premium = alert_data.get('price_limit', 0)
+                if self.simulation_mode and hasattr(self.worker, 'set_initial_price'):
+                    if premium and premium > 0:
+                        self.worker.set_initial_price(token, float(premium))
+                
+                # Subscribe to tick data
+                self.worker.subscribe_tokens([instrument])
+                
+        except Exception as e:
+            # Silently fail - alert will just not have LTP updates
+            import traceback
+            traceback.print_exc()
     
     def handle_enter_trade(self, alert_data):
         """
