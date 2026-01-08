@@ -47,6 +47,9 @@ paper_trade_app/NFO.csv
 # Reports (generated files)
 paper_trade_app/reports/*.pdf
 
+# Installer output
+installer/output/
+
 # Sensitive config (contains API keys - use config_example.py as template)
 paper_trade_app/config.py
 
