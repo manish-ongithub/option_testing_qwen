@@ -184,6 +184,9 @@ CSV_HEADERS = [
     "Spot", "Volume", "OI", "OI_Change", "IV", "IV_Percentile", "IV_Rank", "IV_Source",
     "Market_Regime", "RSI", "Tier", "Moneyness", "Expiry", "DaysToExpiry", 
     "LotSize", "TotalCost", "Breakeven", "DistanceFromSpot",
+    # Probability of Profit fields
+    "PoP_Raw", "PoP_STT_Adjusted", "Tax_Risk", "Prob_ITM", "Prob_MaxProfit",
+    "Breakeven_STT", "STT_Cost",
     # Multi-leg strategy fields
     "Leg1_Strike", "Leg1_Premium", "Leg1_Action", 
     "Leg2_Strike", "Leg2_Premium", "Leg2_Action",
