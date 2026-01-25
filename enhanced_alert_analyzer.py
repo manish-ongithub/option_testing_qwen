@@ -1,16 +1,17 @@
 """
-Enhanced Options Alert Analyzer v2.0
+Enhanced Options Alert Analyzer v2.1
 ====================================
 Combines Greeks analysis WITH technical analysis of the underlying.
 
 Features:
 1. Greeks calculation (Black-Scholes)
-2. Historical price analysis
-3. Technical indicators (RSI, MACD, EMA, Bollinger Bands)
-4. Support/Resistance detection
-5. Trend analysis
-6. Volume analysis
-7. Comprehensive trade scoring
+2. Probability of Profit (PoP) with STT adjustment for Indian markets
+3. Historical price analysis
+4. Technical indicators (RSI, MACD, EMA, Bollinger Bands)
+5. Support/Resistance detection
+6. Trend analysis
+7. Volume analysis
+8. Comprehensive trade scoring
 
 Author: Options Screener Project
 """
@@ -66,6 +67,7 @@ LOT_SIZES = {
 # Last updated: December 2025
 
 RISK_FREE_RATE = 0.055  # 5.50% - Current RBI Repo Rate (Dec 2025)
+STT_RATE = 0.00125       # 0.125% STT on exercise (Indian market)
 
 # Alternative: Use dynamic rate fetching (uncomment to enable)
 # def get_risk_free_rate():
@@ -329,6 +331,72 @@ def analyze_price_history(symbol):
         'price_history': close.iloc[-60:].tolist(),  # Last 60 days for mini chart
         'dates': [d.strftime('%Y-%m-%d') for d in close.iloc[-60:].index]
     }
+
+# ================== PROBABILITY OF PROFIT ==================
+
+def calculate_probability_of_profit(S, K, premium, T, sigma, option_type='CE', include_stt=True):
+    """
+    Calculate Probability of Profit (PoP) using Black-Scholes d2.
+    
+    Args:
+        S: Spot price
+        K: Strike price
+        premium: Option premium paid
+        T: Time to expiry in years
+        sigma: Implied volatility (as decimal)
+        option_type: 'CE' for Call, 'PE' for Put
+        include_stt: Include STT adjustment for Indian markets
+    
+    Returns:
+        dict with probability metrics
+    """
+    if T <= 0:
+        T = 0.0001
+    if sigma <= 0:
+        sigma = 0.01
+    
+    r = RISK_FREE_RATE
+    stt_cost = S * STT_RATE if include_stt else 0
+    
+    # Calculate breakeven
+    if option_type.upper() == 'CE':
+        breakeven_raw = K + premium
+        breakeven_stt = breakeven_raw + stt_cost
+    else:
+        breakeven_raw = K - premium
+        breakeven_stt = breakeven_raw - stt_cost
+    
+    # Calculate d2 for breakeven prices
+    def calc_d2(target):
+        d1 = (math.log(S / target) + (r + 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
+        return d1 - sigma * math.sqrt(T)
+    
+    d2_raw = calc_d2(breakeven_raw)
+    d2_stt = calc_d2(breakeven_stt)
+    d2_strike = calc_d2(K)
+    
+    # Calculate probabilities
+    if option_type.upper() == 'CE':
+        pop_raw = norm.cdf(d2_raw) * 100
+        pop_stt = norm.cdf(d2_stt) * 100
+        prob_itm = norm.cdf(d2_strike) * 100
+    else:
+        pop_raw = norm.cdf(-d2_raw) * 100
+        pop_stt = norm.cdf(-d2_stt) * 100
+        prob_itm = norm.cdf(-d2_strike) * 100
+    
+    tax_risk = pop_raw - pop_stt
+    
+    return {
+        'pop_raw': round(pop_raw, 1),
+        'pop_stt_adjusted': round(pop_stt, 1),
+        'tax_risk': round(tax_risk, 1),
+        'prob_itm': round(prob_itm, 1),
+        'breakeven_raw': round(breakeven_raw, 2),
+        'breakeven_stt': round(breakeven_stt, 2),
+        'stt_cost': round(stt_cost, 2)
+    }
+
 
 # ================== BLACK-SCHOLES GREEKS ==================
 
@@ -683,6 +751,9 @@ def enhanced_alert_analysis(
     sigma = iv / 100
     greeks = black_scholes_greeks(spot, strike, T, RISK_FREE_RATE, sigma, option_type)
     
+    # Calculate Probability of Profit
+    pop_data = calculate_probability_of_profit(spot, strike, premium, T, sigma, option_type)
+    
     total_cost = premium * lot_size
     breakeven = strike + premium if option_type == 'CE' else strike - premium
     
@@ -703,6 +774,45 @@ def enhanced_alert_analysis(
     out("│" + f"    Theta: ₹{pos_theta:.2f}/day (loses ₹{abs(pos_theta):.0f} daily)".ljust(98) + "│")
     out("│" + f"    Vega:  ₹{pos_vega:.2f} per 1% IV change".ljust(98) + "│")
     out("│" + f"    Probability ITM: {greeks['prob_itm']:.1f}%".ljust(98) + "│")
+    out("└" + "─" * 98 + "┘")
+    
+    # ==================== SECTION 5B: PROBABILITY OF PROFIT ====================
+    out("")
+    out("┌" + "─" * 98 + "┐")
+    out("│" + "  📊 SECTION 5B: PROBABILITY OF PROFIT (STT Adjusted for Indian Market)".ljust(98) + "│")
+    out("├" + "─" * 98 + "┤")
+    out("│" + " ".ljust(98) + "│")
+    out("│" + "  PROBABILITY METRICS:".ljust(98) + "│")
+    out("│" + f"    Raw PoP (no STT):        {pop_data['pop_raw']:.1f}%".ljust(98) + "│")
+    out("│" + f"    STT-Adjusted PoP:        {pop_data['pop_stt_adjusted']:.1f}%".ljust(98) + "│")
+    out("│" + f"    Tax Risk (STT Impact):   {pop_data['tax_risk']:.1f}% probability lost to STT".ljust(98) + "│")
+    out("│" + f"    Probability ITM:         {pop_data['prob_itm']:.1f}%".ljust(98) + "│")
+    out("│" + " ".ljust(98) + "│")
+    out("│" + "  BREAKEVEN ANALYSIS:".ljust(98) + "│")
+    out("│" + f"    Raw Breakeven:           ₹{pop_data['breakeven_raw']:,.2f}".ljust(98) + "│")
+    out("│" + f"    STT-Adjusted Breakeven:  ₹{pop_data['breakeven_stt']:,.2f}".ljust(98) + "│")
+    out("│" + f"    STT Cost on Exercise:    ₹{pop_data['stt_cost']:.2f} (0.125% of spot)".ljust(98) + "│")
+    out("│" + " ".ljust(98) + "│")
+    
+    # PoP visualization
+    pop_bar = "█" * int(pop_data['pop_stt_adjusted'] / 5) + "░" * (20 - int(pop_data['pop_stt_adjusted'] / 5))
+    out("│" + "  Probability Scale:".ljust(98) + "│")
+    out("│" + f"    [0%|{pop_bar}|100%] → {pop_data['pop_stt_adjusted']:.1f}% chance of profit".ljust(98) + "│")
+    out("│" + " ".ljust(98) + "│")
+    
+    # Rating
+    if pop_data['pop_stt_adjusted'] >= 40:
+        pop_rating = "🟢 FAVORABLE - Good probability"
+    elif pop_data['pop_stt_adjusted'] >= 25:
+        pop_rating = "🟡 MODERATE - Reasonable odds"
+    else:
+        pop_rating = "🔴 LOW - Challenging probability"
+    
+    out("│" + f"  Assessment: {pop_rating}".ljust(98) + "│")
+    
+    if pop_data['tax_risk'] > 3:
+        out("│" + "  ⚠️ High Tax Risk: Consider squaring off before expiry to avoid STT".ljust(98) + "│")
+    
     out("└" + "─" * 98 + "┘")
     
     # ==================== SECTION 6: COMPREHENSIVE SCORING ====================
@@ -809,6 +919,18 @@ def enhanced_alert_analysis(
         scores.append(("S/R Room", sr_score, 1, 
                        f"{'Support' if option_type == 'PE' else 'Resistance'} distance"))
     
+    # 8. Probability of Profit (0-2 points)
+    if pop_data['pop_stt_adjusted'] >= 40:
+        pop_score = 2
+    elif pop_data['pop_stt_adjusted'] >= 30:
+        pop_score = 1.5
+    elif pop_data['pop_stt_adjusted'] >= 20:
+        pop_score = 1
+    else:
+        pop_score = 0.5
+    scores.append(("PoP (STT-Adj)", pop_score, 2, 
+                   f"{pop_data['pop_stt_adjusted']:.1f}% probability"))
+    
     out("│" + " ".ljust(98) + "│")
     out("│" + f"  {'FACTOR':<25} {'SCORE':<12} {'MAX':<8} {'NOTES':<50}".ljust(98) + "│")
     out("│" + "  " + "─" * 94 + "│")
@@ -895,6 +1017,7 @@ def enhanced_alert_analysis(
         'action': action,
         'tech_data': tech_data,
         'greeks': greeks,
+        'probability': pop_data,
         'total_cost': total_cost,
         'breakeven': breakeven
     }

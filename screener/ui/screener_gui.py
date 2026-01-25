@@ -316,10 +316,10 @@ class AlertViewerTab(QWidget):
         table_layout = QVBoxLayout(table_group)
         
         self.alerts_table = QTableWidget()
-        self.alerts_table.setColumnCount(9)
+        self.alerts_table.setColumnCount(11)
         self.alerts_table.setHorizontalHeaderLabels([
             "Symbol", "Strategy", "Strike", "Premium", "Spot", 
-            "Volume", "OI", "IV%", "DTE"
+            "Volume", "OI", "IV%", "DTE", "PoP%", "Tax Risk"
         ])
         self.alerts_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.alerts_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -513,6 +513,11 @@ class AlertViewerTab(QWidget):
             iv_pct = alert.get('iv_percentile', alert.get('iv', 0))
             dte = alert.get('days_to_expiry', alert.get('dte', 0))
             
+            # Get probability data if available
+            prob = alert.get('probability', {})
+            pop_stt = prob.get('pop_stt_adjusted', prob.get('pop_raw', '-'))
+            tax_risk = prob.get('tax_risk', '-')
+            
             items = [
                 QTableWidgetItem(symbol),
                 QTableWidgetItem(strategy),
@@ -523,10 +528,24 @@ class AlertViewerTab(QWidget):
                 QTableWidgetItem(f"{oi:,}" if isinstance(oi, (int, float)) else str(oi)),
                 QTableWidgetItem(f"{iv_pct:.0f}%" if isinstance(iv_pct, (int, float)) else str(iv_pct)),
                 QTableWidgetItem(f"{dte}" if isinstance(dte, (int, float)) else str(dte)),
+                QTableWidgetItem(f"{pop_stt:.1f}%" if isinstance(pop_stt, (int, float)) else str(pop_stt)),
+                QTableWidgetItem(f"{tax_risk:.1f}%" if isinstance(tax_risk, (int, float)) else str(tax_risk)),
             ]
             
             for col, item in enumerate(items):
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                # Color code PoP column
+                if col == 9 and isinstance(pop_stt, (int, float)):  # PoP column
+                    if pop_stt >= 40:
+                        item.setBackground(QColor("#c8e6c9"))  # Green
+                    elif pop_stt >= 25:
+                        item.setBackground(QColor("#fff9c4"))  # Yellow
+                    else:
+                        item.setBackground(QColor("#ffcdd2"))  # Red
+                # Color code Tax Risk column
+                if col == 10 and isinstance(tax_risk, (int, float)):
+                    if tax_risk > 3:
+                        item.setBackground(QColor("#ffcdd2"))  # Red - high risk
                 self.alerts_table.setItem(row, col, item)
     
     def _on_alert_selected(self):
@@ -545,15 +564,37 @@ class AlertViewerTab(QWidget):
             self.basic_analysis_btn.setEnabled(True)
             self.enhanced_analysis_btn.setEnabled(True)
             
-            # Display alert details
+            # Display alert details with formatted probability section
             details = []
+            prob_details = []
+            
             for key, value in self.current_alert.items():
-                if isinstance(value, float):
+                if key == 'probability' and isinstance(value, dict):
+                    # Format probability data specially
+                    prob_details.append("\n=== PROBABILITY OF PROFIT ===")
+                    prob_details.append(f"  PoP (Raw):          {value.get('pop_raw', 'N/A')}%")
+                    prob_details.append(f"  PoP (STT-Adjusted): {value.get('pop_stt_adjusted', 'N/A')}%")
+                    prob_details.append(f"  Tax Risk:           {value.get('tax_risk', 'N/A')}%")
+                    if 'probability_itm' in value:
+                        prob_details.append(f"  Probability ITM:    {value.get('probability_itm', 'N/A')}%")
+                    if 'probability_max_profit' in value:
+                        prob_details.append(f"  Prob Max Profit:    {value.get('probability_max_profit', 'N/A')}%")
+                    prob_details.append(f"  Breakeven (Raw):    ₹{value.get('breakeven_raw', 'N/A')}")
+                    if 'breakeven_stt_adjusted' in value:
+                        prob_details.append(f"  Breakeven (STT):    ₹{value.get('breakeven_stt_adjusted', 'N/A')}")
+                    prob_details.append(f"  STT Cost:           ₹{value.get('stt_cost', 'N/A')}")
+                elif key in ['leg1', 'leg2'] and isinstance(value, dict):
+                    details.append(f"{key}: Strike={value.get('strike')}, Premium={value.get('premium')}, Action={value.get('action')}")
+                elif isinstance(value, float):
                     details.append(f"{key}: {value:.2f}")
+                elif isinstance(value, dict):
+                    details.append(f"{key}: {value}")
                 else:
                     details.append(f"{key}: {value}")
             
-            self.details_text.setPlainText("\n".join(details))
+            # Combine regular details with probability section
+            all_details = details + prob_details
+            self.details_text.setPlainText("\n".join(all_details))
     
     def _run_analysis(self, analysis_type):
         """Run analysis on selected alert."""

@@ -1,6 +1,6 @@
-# Smart Options Screener v3.2
+# Smart Options Screener v3.3
 
-A Python-based options screener for the Indian stock market (NSE) that identifies potential buying opportunities for calls, puts, and straddles based on technical indicators, IV analysis, and market regime detection.
+A Python-based options screener for the Indian stock market (NSE) that identifies potential buying opportunities for calls, puts, spreads, straddles, and strangles based on technical indicators, IV analysis, probability of profit, and market regime detection.
 
 ## Overview
 
@@ -10,6 +10,7 @@ This screener is designed for **options buyers only** (no writing/selling strate
 - Adequate liquidity (volume and open interest)
 - Reasonable bid-ask spreads
 - Technical confirmation (RSI, EMA trend bias)
+- **NEW: Probability of Profit (PoP) with STT adjustment for Indian markets**
 
 ### Key Features
 
@@ -19,13 +20,16 @@ This screener is designed for **options buyers only** (no writing/selling strate
 | **Market Regime Detection** | Adjusts behavior based on VIX levels (Low/Normal/High volatility) |
 | **Tiered Stock Classification** | Different thresholds for Tier 1 (liquid), Tier 2, and Tier 3 stocks |
 | **Technical Indicators** | RSI and EMA-based trend detection for directional bias |
-| **Multi-Strategy Scanning** | Long Calls, Long Puts, and Long Straddles |
+| **Multi-Strategy Scanning** | Long Calls, Long Puts, Bull Call Spreads, Bear Put Spreads, Long Straddles, Long Strangles |
+| **Probability of Profit (PoP)** | Black-Scholes d2-based probability calculation with STT adjustment |
+| **STT Tax Risk Analysis** | Shows probability impact of Securities Transaction Tax on exercise |
 | **CSV Logging** | All signals logged for analysis and record-keeping |
 | **Days to Expiry** | Shows remaining days until option expiration |
 | **Lot Size** | Displays F&O lot size for each symbol |
 | **Total Cost** | Calculates premium × lot size = capital required |
 | **Breakeven Price** | Shows the price underlying must reach to profit |
 | **Distance from Spot** | Shows how far strike is from current price (%) |
+| **PyQt6 GUI** | Desktop application for easy configuration and alert analysis |
 
 ---
 
@@ -588,7 +592,19 @@ Decision: Suitable for SHORT-TERM bearish bet if you expect immediate downside
 
 ## Changelog
 
-### v3.2 (Current)
+### v3.3 (Current)
+- **Added**: Probability of Profit (PoP) with STT adjustment for Indian markets
+- **Added**: Tax Risk analysis showing probability lost to Securities Transaction Tax
+- **Added**: Probability data integrated into JSON alert output
+- **Added**: PoP columns in GUI Alert Viewer with color-coded visualization
+- **Added**: Probability section in Basic and Enhanced Analysis reports
+- **Added**: Support for Bull Call Spread, Bear Put Spread, Long Straddle, Long Strangle strategies
+- **Added**: Black-Scholes d2-based probability calculations
+- **Added**: Breakeven analysis with and without STT adjustment
+- **Enhanced**: Alert Viewer shows detailed probability breakdown for selected alerts
+- **Enhanced**: Trade scoring includes PoP as a factor
+
+### v3.2
 - **Added**: Days to Expiry (DTE) - shows remaining days until expiration
 - **Added**: Lot Size - displays F&O lot size for each symbol (75+ symbols covered)
 - **Added**: Total Cost - calculates premium × lot size for capital planning

@@ -1,5 +1,5 @@
 """
-Options Alert Analysis Framework v1.0
+Options Alert Analysis Framework v1.1
 =====================================
 A systematic approach to analyze any options alert before trading.
 
@@ -9,12 +9,84 @@ This script provides:
 3. Risk/Reward calculation
 4. Entry/Exit rules
 5. Position sizing
+6. Probability of Profit (PoP) with STT adjustment for Indian markets
 """
 
 import math
 import numpy as np
 from scipy.stats import norm
 from datetime import datetime, timedelta
+
+# ================== CONSTANTS ==================
+
+RISK_FREE_RATE = 0.065  # 6.5% Risk-free rate
+STT_RATE = 0.00125       # 0.125% STT on exercise (Indian market)
+
+# ================== PROBABILITY FUNCTIONS ==================
+
+def calculate_probability_of_profit(S, K, premium, T, sigma, option_type='CE', include_stt=True):
+    """
+    Calculate Probability of Profit (PoP) using Black-Scholes d2.
+    
+    Args:
+        S: Spot price
+        K: Strike price
+        premium: Option premium paid
+        T: Time to expiry in years
+        sigma: Implied volatility (as decimal)
+        option_type: 'CE' for Call, 'PE' for Put
+        include_stt: Include STT adjustment for Indian markets
+    
+    Returns:
+        dict with probability metrics
+    """
+    if T <= 0:
+        T = 0.0001
+    if sigma <= 0:
+        sigma = 0.01
+    
+    r = RISK_FREE_RATE
+    stt_cost = S * STT_RATE if include_stt else 0
+    
+    # Calculate breakeven
+    if option_type.upper() == 'CE':
+        breakeven_raw = K + premium
+        breakeven_stt = breakeven_raw + stt_cost
+    else:
+        breakeven_raw = K - premium
+        breakeven_stt = breakeven_raw - stt_cost
+    
+    # Calculate d2 for breakeven prices
+    def calc_d2(target):
+        d1 = (math.log(S / target) + (r + 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
+        return d1 - sigma * math.sqrt(T)
+    
+    d2_raw = calc_d2(breakeven_raw)
+    d2_stt = calc_d2(breakeven_stt)
+    d2_strike = calc_d2(K)
+    
+    # Calculate probabilities
+    if option_type.upper() == 'CE':
+        pop_raw = norm.cdf(d2_raw) * 100
+        pop_stt = norm.cdf(d2_stt) * 100
+        prob_itm = norm.cdf(d2_strike) * 100
+    else:
+        pop_raw = norm.cdf(-d2_raw) * 100
+        pop_stt = norm.cdf(-d2_stt) * 100
+        prob_itm = norm.cdf(-d2_strike) * 100
+    
+    tax_risk = pop_raw - pop_stt
+    
+    return {
+        'pop_raw': round(pop_raw, 1),
+        'pop_stt_adjusted': round(pop_stt, 1),
+        'tax_risk': round(tax_risk, 1),
+        'prob_itm': round(prob_itm, 1),
+        'breakeven_raw': round(breakeven_raw, 2),
+        'breakeven_stt': round(breakeven_stt, 2),
+        'stt_cost': round(stt_cost, 2)
+    }
+
 
 # ================== BLACK-SCHOLES FUNCTIONS ==================
 
@@ -107,6 +179,9 @@ def analyze_alert(
     
     # Calculate Greeks
     greeks = black_scholes_greeks(spot, strike, T, r, sigma, option_type)
+    
+    # Calculate Probability of Profit
+    pop_data = calculate_probability_of_profit(spot, strike, premium, T, sigma, option_type)
     
     # Calculate key metrics
     total_cost = premium * lot_size
@@ -220,6 +295,44 @@ def analyze_alert(
     print("│" + f"    Position Vega:   ₹{pos_vega:.2f} per 1% IV".ljust(88) + "│")
     print("│" + " ".ljust(88) + "│")
     print("│" + f"  Probability of ITM at Expiry: {greeks['prob_itm']:.1f}%".ljust(88) + "│")
+    print("└" + "─" * 88 + "┘")
+    
+    # ==================== SECTION 3B: PROBABILITY OF PROFIT (with STT) ====================
+    print("\n")
+    print("┌" + "─" * 88 + "┐")
+    print("│" + "  📊 SECTION 3B: PROBABILITY OF PROFIT (Indian Market STT Adjusted)".ljust(88) + "│")
+    print("├" + "─" * 88 + "┤")
+    print("│" + " ".ljust(88) + "│")
+    print("│" + "  PROBABILITY ANALYSIS:".ljust(88) + "│")
+    print("│" + f"    Raw PoP (no STT):        {pop_data['pop_raw']:.1f}%".ljust(88) + "│")
+    print("│" + f"    STT-Adjusted PoP:        {pop_data['pop_stt_adjusted']:.1f}%".ljust(88) + "│")
+    print("│" + f"    Tax Risk (STT Impact):   {pop_data['tax_risk']:.1f}% probability lost to STT".ljust(88) + "│")
+    print("│" + " ".ljust(88) + "│")
+    print("│" + "  BREAKEVEN ANALYSIS:".ljust(88) + "│")
+    print("│" + f"    Raw Breakeven:           ₹{pop_data['breakeven_raw']:,.2f}".ljust(88) + "│")
+    print("│" + f"    STT-Adjusted Breakeven:  ₹{pop_data['breakeven_stt']:,.2f}".ljust(88) + "│")
+    print("│" + f"    STT Cost on Exercise:    ₹{pop_data['stt_cost']:.2f} (0.125% of spot)".ljust(88) + "│")
+    print("│" + " ".ljust(88) + "│")
+    
+    # PoP scale visualization
+    pop_bar = "█" * int(pop_data['pop_stt_adjusted'] / 5) + "░" * (20 - int(pop_data['pop_stt_adjusted'] / 5))
+    print("│" + "  Probability Scale:".ljust(88) + "│")
+    print("│" + f"    [0%|{pop_bar}|100%] → {pop_data['pop_stt_adjusted']:.1f}% chance of profit".ljust(88) + "│")
+    print("│" + " ".ljust(88) + "│")
+    
+    # Recommendation based on PoP and tax risk
+    if pop_data['pop_stt_adjusted'] >= 40:
+        pop_rating = "🟢 FAVORABLE - Good probability of profit"
+    elif pop_data['pop_stt_adjusted'] >= 25:
+        pop_rating = "🟡 MODERATE - Reasonable odds"
+    else:
+        pop_rating = "🔴 LOW - Challenging probability"
+    
+    print("│" + f"  Assessment: {pop_rating}".ljust(88) + "│")
+    
+    if pop_data['tax_risk'] > 3:
+        print("│" + "  ⚠️ High Tax Risk: Consider squaring off before expiry to avoid STT".ljust(88) + "│")
+    
     print("└" + "─" * 88 + "┘")
     
     # ==================== SECTION 4: GREEKS INTERPRETATION ====================
@@ -544,11 +657,13 @@ def analyze_alert(
     print("█" + " " * 88 + "█")
     print("█" + f"  {symbol} {strike} {opt_name} @ ₹{premium:.2f}".center(88) + "█")
     print("█" + f"  Cost: ₹{total_cost:,.0f} | Max Loss: ₹{total_cost:,.0f} | Prob ITM: {greeks['prob_itm']:.0f}%".center(88) + "█")
+    print("█" + f"  PoP (STT-Adjusted): {pop_data['pop_stt_adjusted']:.1f}% | Tax Risk: {pop_data['tax_risk']:.1f}%".center(88) + "█")
     print("█" + " " * 88 + "█")
     print("█" * 90)
     
     return {
         'greeks': greeks,
+        'probability': pop_data,
         'breakeven': breakeven,
         'total_cost': total_cost,
         'max_lots': max_lots,
