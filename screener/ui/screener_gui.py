@@ -15,37 +15,56 @@ import io
 
 # Fix Qt plugin path for macOS - must be set before ANY PyQt6 imports
 def _setup_qt_plugin_path():
-    """Set Qt plugin path for macOS to find cocoa platform plugin."""
+    """
+    Set Qt plugin path for macOS to find cocoa platform plugin.
+    Also clears macOS quarantine attributes that can block Qt plugins.
+    """
     if sys.platform == 'darwin':
         try:
-            # Find PyQt6 installation path using multiple methods
+            # Find PyQt6 installation path
             import importlib.util
             spec = importlib.util.find_spec('PyQt6')
             if spec and spec.origin:
                 pyqt6_path = os.path.dirname(spec.origin)
                 qt_plugin_path = os.path.join(pyqt6_path, 'Qt6', 'plugins')
+                
                 if os.path.exists(qt_plugin_path):
+                    # Set Qt plugin path
                     os.environ['QT_PLUGIN_PATH'] = qt_plugin_path
+                    
                     # Also set QT_QPA_PLATFORM_PLUGIN_PATH for the platforms subfolder
                     platforms_path = os.path.join(qt_plugin_path, 'platforms')
                     if os.path.exists(platforms_path):
                         os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = platforms_path
-                    # Set QT_DEBUG_PLUGINS to help diagnose issues if they occur
-                    # os.environ['QT_DEBUG_PLUGINS'] = '1'
+                    
+                    # Clear macOS quarantine attributes that block Qt plugins
+                    # This is a common issue when PyQt6 is installed via pip
+                    import subprocess
+                    subprocess.run(
+                        ['xattr', '-r', '-c', pyqt6_path],
+                        capture_output=True,
+                        timeout=30
+                    )
                     return
             
-            # Fallback: Try to find via pip show
+            # Fallback: Try to find via subprocess
             import subprocess
             result = subprocess.run(
                 [sys.executable, '-c', 
                  'import PyQt6; import os; print(os.path.dirname(PyQt6.__file__))'],
-                capture_output=True, text=True
+                capture_output=True, text=True, timeout=10
             )
             if result.returncode == 0:
                 pyqt6_path = result.stdout.strip()
                 qt_plugin_path = os.path.join(pyqt6_path, 'Qt6', 'plugins')
                 if os.path.exists(qt_plugin_path):
                     os.environ['QT_PLUGIN_PATH'] = qt_plugin_path
+                    # Clear quarantine attributes
+                    subprocess.run(
+                        ['xattr', '-r', '-c', pyqt6_path],
+                        capture_output=True,
+                        timeout=30
+                    )
         except Exception:
             pass
 
