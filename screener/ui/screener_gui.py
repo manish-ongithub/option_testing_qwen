@@ -18,7 +18,7 @@ def _setup_qt_plugin_path():
     """Set Qt plugin path for macOS to find cocoa platform plugin."""
     if sys.platform == 'darwin':
         try:
-            # Find PyQt6 installation path
+            # Find PyQt6 installation path using multiple methods
             import importlib.util
             spec = importlib.util.find_spec('PyQt6')
             if spec and spec.origin:
@@ -26,10 +26,26 @@ def _setup_qt_plugin_path():
                 qt_plugin_path = os.path.join(pyqt6_path, 'Qt6', 'plugins')
                 if os.path.exists(qt_plugin_path):
                     os.environ['QT_PLUGIN_PATH'] = qt_plugin_path
-                    # Also set QT_QPA_PLATFORM_PLUGIN_PATH for older Qt versions
+                    # Also set QT_QPA_PLATFORM_PLUGIN_PATH for the platforms subfolder
                     platforms_path = os.path.join(qt_plugin_path, 'platforms')
                     if os.path.exists(platforms_path):
                         os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = platforms_path
+                    # Set QT_DEBUG_PLUGINS to help diagnose issues if they occur
+                    # os.environ['QT_DEBUG_PLUGINS'] = '1'
+                    return
+            
+            # Fallback: Try to find via pip show
+            import subprocess
+            result = subprocess.run(
+                [sys.executable, '-c', 
+                 'import PyQt6; import os; print(os.path.dirname(PyQt6.__file__))'],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                pyqt6_path = result.stdout.strip()
+                qt_plugin_path = os.path.join(pyqt6_path, 'Qt6', 'plugins')
+                if os.path.exists(qt_plugin_path):
+                    os.environ['QT_PLUGIN_PATH'] = qt_plugin_path
         except Exception:
             pass
 
@@ -231,7 +247,12 @@ class ReportDialog(QDialog):
         # Report text display
         self.report_text = QTextEdit()
         self.report_text.setReadOnly(True)
-        self.report_text.setFont(QFont("Menlo", 11))
+        # Use a monospace font that exists on macOS
+        monospace_font = QFont()
+        monospace_font.setFamily("Menlo")
+        monospace_font.setStyleHint(QFont.StyleHint.Monospace)
+        monospace_font.setPointSize(11)
+        self.report_text.setFont(monospace_font)
         self.report_text.setPlainText(report_text)
         self.report_text.setStyleSheet("""
             QTextEdit {
@@ -354,7 +375,12 @@ class AlertViewerTab(QWidget):
         self.details_text = QTextEdit()
         self.details_text.setReadOnly(True)
         self.details_text.setMaximumHeight(150)
-        self.details_text.setFont(QFont("Menlo", 10))
+        # Use a monospace font that exists on macOS
+        details_font = QFont()
+        details_font.setFamily("Menlo")
+        details_font.setStyleHint(QFont.StyleHint.Monospace)
+        details_font.setPointSize(10)
+        self.details_text.setFont(details_font)
         self.details_text.setPlainText("Select an alert from the table above to view details.")
         details_layout.addWidget(self.details_text)
         
